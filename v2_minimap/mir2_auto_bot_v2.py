@@ -20,6 +20,9 @@ from datetime import datetime
 from typing import Optional, Tuple, List
 import ctypes
 
+# NPC传送和怪物猎手
+from npc_teleporter import NpcTeleporter, MonsterHunter
+
 # 获取脚本所在目录
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE = os.path.join(SCRIPT_DIR, 'mir2_bot_v2.log')
@@ -37,33 +40,27 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class MinimapDetector:
-    """小地图黄点检测器"""
+    """小地图黄点/红点检测器"""
 
     def __init__(self):
-        # 精确黄色检测：RGB(255, 255, 0)
+        # 精确黄色检测：RGB(255, 255, 0) — 玩家
         self.yellow_lower_rgb = np.array([250, 250, 0])
         self.yellow_upper_rgb = np.array([255, 255, 5])
+        # 红色检测：RGB(255, 0, 0) — 怪物
+        self.red_lower_rgb = np.array([200, 0, 0])
+        self.red_upper_rgb = np.array([255, 60, 60])
         self.min_contour_area = 1
 
     def detect(self, image: np.ndarray) -> List[Tuple[int, int, int]]:
         """
         精确检测RGB(255,255,0)的黄点
-
-        Args:
-            image: BGR格式的图像
-
-        Returns:
-            检测到的黄点列表 [(x, y, area), ...]
         """
         # 转换BGR到RGB
         rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
         # 创建精确黄色掩码
         yellow_mask = cv2.inRange(rgb, self.yellow_lower_rgb, self.yellow_upper_rgb)
-
         # 查找轮廓
         contours, _ = cv2.findContours(yellow_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
         # 过滤小轮廓，获取黄点位置
         yellow_dots = []
         for contour in contours:
@@ -74,8 +71,26 @@ class MinimapDetector:
                     cx = int(M["m10"] / M["m00"])
                     cy = int(M["m01"] / M["m00"])
                     yellow_dots.append((cx, cy, int(area)))
-
         return yellow_dots
+
+    def detect_red_dots(self, image: np.ndarray) -> List[Tuple[int, int, int]]:
+        """
+        检测小地图上的红点（怪物）
+        返回: [(x, y, area), ...]
+        """
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        red_mask = cv2.inRange(rgb, self.red_lower_rgb, self.red_upper_rgb)
+        contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        red_dots = []
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area >= self.min_contour_area:
+                M = cv2.moments(contour)
+                if M["m00"] > 0:
+                    cx = int(M["m10"] / M["m00"])
+                    cy = int(M["m01"] / M["m00"])
+                    red_dots.append((cx, cy, int(area)))
+        return red_dots
 
 class Mir2AutoBotV2:
     """传奇2自动挂机机器人 V2 - 小地图黄点检测版（后台截图）"""
@@ -104,9 +119,28 @@ class Mir2AutoBotV2:
         # 小地图区域（相对于客户区）
         self.minimap_region = None  # (x, y, width, height)
 
-        # 传送相关
+# 传送相关
         self.last_teleport_time = 0
         self.teleport_cooldown = self.config.getfloat('Teleport', 'cooldown', fallback=4.0)
+
+        # NPC传送器
+        self.npc_teleporter = NpcTeleporter()
+        self.npc_teleporter.enabled = self.config.getboolean('NpcTeleport', 'enabled', fallback=False)
+        self.npc_teleporter.npc_x = self.config.getint('NpcTeleport', 'npc_x', fallback=330)
+        self.npc_teleporter.npc_y = self.config.getint('NpcTeleport', 'npc_y', fallback=330)
+
+        # 怪物猎手
+        self.monster_hunter = MonsterHunter()
+        self.monster_hunter.enabled = self.config.getboolean('MonsterHunt', 'enabled', fallback=False)
+        # 读取多技能键（逗号分隔）
+        keys_str = self.config.get('MonsterHunt', 'attack_keys', fallback='F1,F2')
+        self.monster_hunter.attack_keys = [k.strip() for k in keys_str.split(',') if k.strip()]
+        self.monster_hunter.attack_interval = self.config.getfloat('MonsterHunt', 'attack_interval', fallback=0.5)
+        self.monster_hunter.skill_rotation_interval = self.config.getfloat('MonsterHunt', 'skill_rotation_interval', fallback=2.0)
+
+        # 挂机模式: 'normal'（黄点躲避） / 'teleport'（NPC传送中） / 'hunt'（打怪）
+        self.mode = 'normal'
+        self.target_dungeon = self.config.get('NpcTeleport', 'target_dungeon', fallback='')
 
         # 统计信息
         self.stats = {
@@ -145,7 +179,7 @@ class Mir2AutoBotV2:
                 'enabled': 'true',
                 'teleport_key': '2',
                 'cooldown': '4.0',
-            },
+},
             'YellowColor': {
                 'r_lower': '250',
                 'r_upper': '255',
@@ -153,6 +187,16 @@ class Mir2AutoBotV2:
                 'g_upper': '255',
                 'b_lower': '0',
                 'b_upper': '5',
+            },
+            'NpcTeleport': {
+                'enabled': 'false',
+                'npc_x': '330',
+                'npc_y': '330',
+                'target_dungeon': '石墓阵',
+            },
+            'MonsterHunt': {
+                'enabled': 'false',
+                'attack_key': 'F1',
             }
         }
 
@@ -240,6 +284,10 @@ class Mir2AutoBotV2:
         logger.info(f"客户区偏移: {self.client_offset}")
 
         self._calculate_minimap_region()
+        
+        # 将hwnd传给NPC传送器和怪物猎手
+        self.npc_teleporter.set_hwnd(self.hwnd)
+        self.monster_hunter.set_hwnd(self.hwnd)
 
     def _calculate_minimap_region(self):
         """计算小地图区域（相对于客户区）"""
@@ -417,9 +465,9 @@ class Mir2AutoBotV2:
             logger.warning(f"清理debug目录失败: {e}")
 
     def run(self):
-        """运行挂机脚本"""
+        """运行挂机脚本 - 支持NPC传送 + 自动找怪"""
         logger.info("开始运行挂机脚本V2...")
-        logger.info("使用小地图黄点检测（后台截图模式）")
+        logger.info("使用小地图黄点/红点检测（后台截图模式）")
 
         if not self.find_game_window():
             logger.error("无法找到游戏窗口，退出")
@@ -428,8 +476,27 @@ class Mir2AutoBotV2:
         logger.info("提示: 脚本支持后台运行，窗口被遮挡也能正常工作")
 
         self.running = True
+
+        # 判断启动模式
+        npc_enabled = self.config.getboolean('NpcTeleport', 'enabled', fallback=False)
+        hunt_enabled = self.config.getboolean('MonsterHunt', 'enabled', fallback=False)
+        target = self.config.get('NpcTeleport', 'target_dungeon', fallback='')
+
+        if npc_enabled and target:
+            self.mode = 'teleport'
+            self.npc_teleporter.enabled = True
+            self.npc_teleporter.start_teleport(target, callback=self._on_teleport_done)
+            logger.info("模式: NPC传送 -> %s", target)
+        elif hunt_enabled:
+            self.mode = 'hunt'
+            self.monster_hunter.enabled = True
+            self.monster_hunter.start_hunting()
+            logger.info("模式: 自动打怪")
+        else:
+            self.mode = 'normal'
+            logger.info("模式: 黄点躲避（原模式）")
+
         logger.info("挂机脚本V2已启动，按 F10 停止")
-        logger.info(f"功能: 检测小地图黄点（其他玩家），自动使用随机传送石")
         logger.info(f"小地图区域: {self.minimap_region}")
 
         try:
@@ -445,14 +512,42 @@ class Mir2AutoBotV2:
                 if minimap is not None:
                     self.stats['detection_runs'] += 1
 
-                    # 检测黄点
-                    has_players, yellow_dots = self.detect_yellow_dots(minimap)
+                    # ====== 模式1: NPC传送中 ======
+                    if self.mode == 'teleport':
+                        # 一直在NPC传送器循环里
+                        status = self.npc_teleporter.update(coords=None)
+                        if status == 'arrived':
+                            # 传送完成后切到打怪模式
+                            if self.config.getboolean('MonsterHunt', 'enabled', fallback=False):
+                                self.mode = 'hunt'
+                                self.monster_hunter.start_hunting()
+                                logger.info("传送完成，切换到自动打怪模式")
+                            else:
+                                self.mode = 'normal'
+                        elif status == 'failed':
+                            logger.warning("传送失败，尝试重新传送")
+                            target = self.config.get('NpcTeleport', 'target_dungeon', fallback='')
+                            if target:
+                                self.npc_teleporter.start_teleport(target)
 
-                    if has_players:
-                        self.use_teleport()
+                    # ====== 模式2: 自动打怪 ======
+                    elif self.mode == 'hunt':
+                        red_dots = self.minimap_detector.detect_red_dots(minimap)
+                        if red_dots:
+                            # 小地图中心就是玩家位置
+                            mm_w = self.minimap_region[2]
+                            mm_h = self.minimap_region[3]
+                            center_x = mm_w // 2
+                            center_y = mm_h // 2
+                            self.monster_hunter.hunt(red_dots, center_x, center_y)
+
+                    # ====== 模式3: 原黄点躲避 ======
+                    else:
+                        has_players, yellow_dots = self.detect_yellow_dots(minimap)
+                        if has_players:
+                            self.use_teleport()
 
                 self.update_stats()
-
                 detection_interval = self.config.getfloat('Detection', 'detection_interval', fallback=0.3)
                 time.sleep(detection_interval)
 
@@ -463,9 +558,18 @@ class Mir2AutoBotV2:
         finally:
             self.stop()
 
+    def _on_teleport_done(self):
+        """传送完成后的回调"""
+        logger.info("NPC传送回调: 准备开始打怪")
+        if self.config.getboolean('MonsterHunt', 'enabled', fallback=False):
+            self.mode = 'hunt'
+            self.monster_hunter.start_hunting()
+
     def stop(self):
         """停止挂机脚本"""
         self.running = False
+        self.npc_teleporter.stop_teleport()
+        self.monster_hunter.stop_hunting()
         logger.info("挂机脚本V2已停止")
 
         if self.stats['start_time']:
@@ -525,4 +629,4 @@ def main():
     keyboard.unhook_all()
 
 if __name__ == '__main__':
-    main()
+    main(    )

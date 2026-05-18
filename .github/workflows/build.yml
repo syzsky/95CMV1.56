@@ -29,6 +29,21 @@ jobs:
           pip install pyinstaller
           pip install -r requirements.txt
       
+      - name: 检查代码语法
+        run: |
+          echo "=== 语法检查 ==="
+          for f in *.py; do
+            echo "检查: $f"
+            python -m py_compile "$f"
+          done
+          echo "✅ 所有文件语法正确"
+      
+      - name: 验证功能（关键方法 + 配置加载）
+        run: |
+          pip install opencv-python-headless numpy
+          echo "=== 功能验证 ==="
+          python verify_build.py
+      
       - name: Build CLI version (mir2_auto_bot_v2.py)
         run: |
           pyinstaller --onefile --clean --noconfirm `

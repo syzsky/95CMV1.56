@@ -819,7 +819,9 @@ class BotGUI:
         
         if os.path.exists(self.config_file):
             config.read(self.config_file, encoding='utf-8')
-        
+
+        return config
+
     def _create_widgets(self):
         """创建界面组件（中文）"""
         main_frame = ttk.Frame(self.root, padding="10")

@@ -1,0 +1,74 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    defaults:
+      run:
+        working-directory: v2_minimap
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r requirements.txt
+      
+      - name: Build CLI version (mir2_auto_bot_v2.py)
+        run: |
+          pyinstaller --onefile --clean --noconfirm `
+            --name "95CM-AutoBot-CLI" --console `
+            --hidden-import win32gui --hidden-import win32con --hidden-import win32api `
+            --hidden-import win32ui --hidden-import keyboard --hidden-import cv2 `
+            --hidden-import numpy --hidden-import npc_teleporter --hidden-import class_skills `
+            --hidden-import auto_nav --hidden-import map_detector --hidden-import status_monitor `
+            --add-data "bot_config_v2.ini;." `
+            mir2_auto_bot_v2.py
+      
+      - name: Build GUI version (mir2_bot_gui_v2.py)
+        run: |
+          pyinstaller --onefile --clean --noconfirm --name "95CM-AutoBot-GUI" --windowed `
+            --hidden-import win32gui --hidden-import win32con --hidden-import win32api `
+            --hidden-import win32ui --hidden-import keyboard --hidden-import cv2 `
+            --hidden-import numpy --hidden-import Pillow --hidden-import PIL.Image `
+            --hidden-import PIL.ImageTk --hidden-import customtkinter `
+            --hidden-import map_detector --hidden-import status_monitor `
+            --hidden-import class_skills --hidden-import auto_nav `
+            --add-data "bot_config_v2.ini;." `
+            mir2_bot_gui_v2.py
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: 95CM-AutoBot-Exe
+          path: |
+            v2_minimap/dist/95CM-AutoBot-CLI.exe
+            v2_minimap/dist/95CM-AutoBot-GUI.exe
+      
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            v2_minimap/dist/95CM-AutoBot-CLI.exe
+            v2_minimap/dist/95CM-AutoBot-GUI.exe
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

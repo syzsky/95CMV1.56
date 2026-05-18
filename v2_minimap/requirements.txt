@@ -1,0 +1,7 @@
+# 95沉默自动挂机 - 依赖清单
+pywin32>=305
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=9.0.0
+keyboard>=0.13.5
+customtkinter>=5.2.0

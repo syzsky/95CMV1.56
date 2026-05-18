@@ -24,6 +24,12 @@ from typing import Optional, Tuple, List
 from PIL import Image, ImageTk
 import ctypes
 
+# 导入新模块
+from map_detector import MapDetector
+from status_monitor import StatusMonitor
+from class_skills import ClassSkillManager
+from auto_nav import AutoNavigator
+
 # 获取脚本所在目录
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE = os.path.join(SCRIPT_DIR, 'mir2_bot_v2.log')
@@ -77,6 +83,23 @@ class Mir2AutoBotV2:
         self.last_teleport_time = 0
         self.teleport_cooldown = self.config.getfloat('Teleport', 'cooldown', fallback=4.0)
 
+        # ===== 新功能模块 =====
+        # 地图白名单检测器
+        self.map_detector = MapDetector()
+        self._init_map_detector()
+
+        # 掉线/死亡检测器
+        self.status_monitor = StatusMonitor()
+        self._init_status_monitor()
+
+        # 道士技能管理器
+        self.taoist_skills = TaoistSkillManager()
+        self._init_taoist_skills()
+
+        # 全屏截图缓存
+        self._full_screen_cache = None
+        self._full_screen_time = 0
+
         self.stats = {
             'yellow_dots_detected': 0,
             'teleports_used': 0,
@@ -125,6 +148,51 @@ class Mir2AutoBotV2:
                 'g_upper': '255',
                 'b_lower': '0',
                 'b_upper': '5',
+            },
+            'MapDetection': {
+                'enabled': 'false',
+                'map_name_x': '300',
+                'map_name_y': '5',
+                'map_name_width': '200',
+                'map_name_height': '30',
+                'no_teleport_maps': '盟重省,安全区,比奇省',
+                'respawn_x': '330',
+                'respawn_y': '330',
+                'respawn_tolerance': '20',
+            },
+            'StatusMonitor': {
+                'enabled': 'false',
+                'check_interval': '0.5',
+                'coord_frozen_threshold': '30',
+                'alert_sound_enabled': 'true',
+                'coord_region_x': '10',
+                'coord_region_y': '10',
+                'coord_region_width': '150',
+                'coord_region_height': '25',
+            },
+            'ClassSkills': {
+                'enabled': 'false',
+                'class_name': 'taoist',
+                'hp_potion_key': '1',
+                'hp_potion_interval': '3',
+                'hp_potion_enabled': 'true',
+                'mp_potion_key': '2',
+                'mp_potion_interval': '3',
+                'mp_potion_enabled': 'false',
+                'summon_key': '3',
+                'summon_interval': '300',
+                'summon_enabled': 'true',
+                'heal_key': '4',
+                'heal_interval': '15',
+                'heal_enabled': 'true',
+                'buff_key': '5',
+                'buff_interval': '120',
+                'buff_enabled': 'true',
+            },
+            'AutoNav': {
+                'enabled': 'false',
+                'arrive_distance': '5',
+                'nav_timeout': '120',
             }
         }
 
@@ -156,6 +224,54 @@ class Mir2AutoBotV2:
         self.minimap_detector.yellow_upper_rgb = np.array([r_upper, g_upper, b_upper])
         self.minimap_detector.min_contour_area = config.getint('Detection', 'min_contour_area', fallback=1)
 
+    def _init_map_detector(self):
+        try:
+            section = self.config['MapDetection']
+            self.map_detector.enabled = section.getboolean('enabled', fallback=False)
+            if self.map_detector.enabled:
+                x = section.getint('map_name_x', fallback=300)
+                y = section.getint('map_name_y', fallback=5)
+                w = section.getint('map_name_width', fallback=200)
+                h = section.getint('map_name_height', fallback=30)
+                self.map_detector.set_region(x, y, w, h)
+                maps_str = section.get('no_teleport_maps', fallback='盟重省,安全区,比奇省')
+                maps_list = [m.strip() for m in maps_str.replace('，', ',').split(',') if m.strip()]
+                self.map_detector.set_no_teleport_maps(maps_list)
+        except Exception as e:
+            self._log(f"Init map detector: {e}", "WARNING")
+
+    def _init_status_monitor(self):
+        try:
+            section = self.config['StatusMonitor']
+            self.status_monitor.enabled = section.getboolean('enabled', fallback=False)
+            if self.status_monitor.enabled:
+                self.status_monitor.check_interval = section.getfloat('check_interval', fallback=0.5)
+                self.status_monitor.coord_frozen_threshold = section.getint('coord_frozen_threshold', fallback=30)
+                self.status_monitor.alert_sound_enabled = section.getboolean('alert_sound_enabled', fallback=True)
+                cx = section.getint('coord_region_x', fallback=10)
+                cy = section.getint('coord_region_y', fallback=10)
+                cw = section.getint('coord_region_width', fallback=150)
+                ch = section.getint('coord_region_height', fallback=25)
+                self.status_monitor.set_coord_region(cx, cy, cw, ch)
+                map_section = self.config['MapDetection']
+                rx = map_section.getint('respawn_x', fallback=330)
+                ry = map_section.getint('respawn_y', fallback=330)
+                rt = map_section.getint('respawn_tolerance', fallback=20)
+                self.status_monitor.respawn_coords = (rx, ry)
+                self.status_monitor.respawn_tolerance = rt
+        except Exception as e:
+            self._log(f"Init status monitor: {e}", "WARNING")
+
+    def _init_taoist_skills(self):
+        try:
+            section = self.config['TaoistSkills']
+            self.taoist_skills.enabled = section.getboolean('enabled', fallback=False)
+            if self.taoist_skills.enabled:
+                self.taoist_skills.update_from_config(section)
+                self._log("Taoist auto skills enabled")
+        except Exception as e:
+            self._log(f"Init taoist skills: {e}", "WARNING")
+
     def find_game_window(self) -> bool:
         """查找游戏窗口"""
         window_title = self.config.get('Game', 'window_title', fallback='九五沉默')
@@ -182,6 +298,8 @@ class Mir2AutoBotV2:
         if windows:
             self.hwnd, self.window_title = windows[0]
             self._init_window_info()
+            if self.hwnd:
+                self.taoist_skills.set_hwnd(self.hwnd)
             return True
         else:
             self._log("Game window not found", "ERROR")
@@ -318,10 +436,16 @@ class Mir2AutoBotV2:
 
         return False, []
 
-    def use_teleport(self):
-        """使用随机传送石 - 使用PostMessage发送按键"""
+    def use_teleport(self, full_screen=None):
+        """使用随机传送石 - 使用PostMessage发送按键（含地图白名单检查）"""
         if not self.config.getboolean('Teleport', 'enabled', fallback=True):
             return
+
+        # 地图白名单检查
+        if self.map_detector.enabled and full_screen is not None:
+            if self.map_detector.should_skip_teleport(full_screen):
+                self._log("安全地图，跳过传送")
+                return
 
         current_time = time.time()
         self.teleport_cooldown = self.config.getfloat('Teleport', 'cooldown', fallback=4.0)
@@ -380,11 +504,32 @@ class Mir2AutoBotV2:
                     break
 
                 minimap = self.capture_minimap()
+                status_counter = getattr(self, '_status_counter', 0) + 1
+                self._status_counter = status_counter
+
                 if minimap is not None:
                     self.stats['detection_runs'] += 1
                     has_players, yellow_dots = self.detect_yellow_dots(minimap)
+
+                    # 定期获取全屏截图用于地图检测和状态监控
+                    full_screen = None
+                    check_interval = max(1, int(getattr(self.status_monitor, 'check_interval', 0.5) / 0.3))
+                    if self.map_detector.enabled or self.status_monitor.enabled:
+                        if status_counter % check_interval == 0 or has_players:
+                            full_screen = self.capture_full_screen()
+
                     if has_players:
-                        self.use_teleport()
+                        self.use_teleport(full_screen)
+
+                    # 状态监控
+                    if self.status_monitor.enabled and status_counter % check_interval == 0:
+                        changed, s_type, msg = self.status_monitor.update(full_screen)
+                        if changed:
+                            self._log(f"[状态] {msg}", "WARNING")
+
+                # 道士自动技能
+                if self.taoist_skills.enabled:
+                    self.taoist_skills.tick()
 
                 detection_interval = self.config.getfloat('Detection', 'detection_interval', fallback=0.3)
                 time.sleep(detection_interval)

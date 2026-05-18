@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>95沉默自动挂机 - GUI演示</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Microsoft YaHei", "Segoe UI", sans-serif;
+    background: #0d0d0d;
+    color: #e0e0e0;
+    display: flex;
+    justify-content: center;
+    padding: 30px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .window {
+    width: 900px;
+    background: #1a1a2e;
+    border-radius: 12px;
+    border: 1px solid #2a2a4a;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+    overflow: hidden;
+  }
+  .titlebar {
+    background: #16213e;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid #2a2a4a;
+    user-select: none;
+  }
+  .titlebar .dots { display: flex; gap: 6px; }
+  .titlebar .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dot-red { background: #ff5f57; }
+  .dot-yellow { background: #ffbd2e; }
+  .dot-green { background: #28c840; }
+  .titlebar .title { flex: 1; text-align: center; font-size: 14px; color: #888; letter-spacing: 1px; }
+  .content { display: flex; min-height: 600px; }
+  
+  /* 左侧面板 */
+  .sidebar {
+    width: 220px;
+    background: #16213e;
+    border-right: 1px solid #2a2a4a;
+    padding: 12px 0;
+  }
+  .sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 10px 16px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #999;
+    transition: all 0.2s;
+    border-left: 3px solid transparent;
+  }
+  .sidebar-item:hover { background: #1a1a3e; color: #ddd; }
+  .sidebar-item.active {
+    background: #1a1a3e;
+    color: #fff;
+    border-left-color: #4fc3f7;
+  }
+  .sidebar-item .icon { font-size: 16px; width: 24px; text-align: center; }
+  .sidebar-divider { height: 1px; background: #2a2a4a; margin: 8px 12px; }
+
+  /* 主区域 */
+  .main {
+    flex: 1;
+    padding: 16px 20px;
+    background: #1a1a2e;
+  }
+  .panel-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #4fc3f7;
+    margin-bottom: 12px;
+    display: flex-direction: column;
+    align-items: flex-start;
+  }
+  .panel-desc {
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+
+  .config-group {
+    background: #12122a;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .config-group .label {
+    font-size: 13px;
+    color: #ccc;
+  }
+  .config-group .value {
+    color: #4fc3f7;
+    font-family: "Cascadia Code", monospace;
+    font-size: 13px;
+    background: #0d0d1a;
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid #2a2a4a;
+  }
+  
+  /* 开关 */
+  .toggle {
+    position: relative;
+    width: 44px;
+    height: 22px;
+    background: #333;
+    border-radius: 11px;
+    cursor: pointer;
+    transition: 0.3s;
+  }
+  .toggle.on { background: #4fc3f7; }
+  .toggle:after {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    background: #fff;
+    border-radius: 50%;
+    top: 2px;
+    left: 2px;
+    transition: 0.3s;
+  }
+  .toggle.on:after { left: 24px; }
+  
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge-green { background: #1b5e20; color: #81c784; }
+  .badge-blue { background: #0d47a1; color: #64b5f6; }
+  .badge-orange { background: #e65100; color: #ffb74d; }
+  .badge-red { background: #b71c1c; color: #ef9a9a; }
+
+  /* 技能键标签 */
+  .key-tags {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .key-tag {
+    background: #0d0d1a;
+    border: 1px solid #3a3a5a;
+    padding: 2px 10px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 12px;
+    color: #4fc3f7;
+  }
+
+  /* 日志区域 */
+  .log-area {
+    margin-top: 14px;
+    background: #0a0a1a;
+    border-radius: 8px;
+    padding: 10px;
+    height: 120px;
+    overflow-y: auto;
+    font-family: "Cascadia Code", monospace", "Consolas", monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    border: 1px solid #2a2a4a;
+  }
+  .log-line { color: #888; }
+  .log-line.info { color: #b0bec5; }
+  .log-line.warn { color: #ffb74d; }
+  .log-line.ok { color: #81c784; }
+  .log-line.action { color: #64b5f6; }
+
+  .btn {
+    padding: 6px 18px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: 0.2s;
+  }
+  .btn-start { background: #2e7d32; color: #fff; }
+  .btn-start:hover { background: #388e3c; }
+  .btn-stop { background: #c62828; color: #fff; }
+  .btn-stop:hover { background: #d32f2f; }
+
+  .bottom-bar {
+    background: #16213e;
+    border-top: 1px solid #2a2a4a;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .stats-bar {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    color: #999;
+  }
+  .stats-bar span { display: flex; align-items: center; gap: 4px; }
+
+  .mode-badge {
+    padding: 3px 12px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .mode-idle { background: #333; color: #999; }
+  .mode-teleport { background: #0d47a1; color: #64b5f6; }
+  .mode-hunt { background: #b71c1c; color: #ef9a9a; }
+  .mode-normal { background: #1b5e20; color: #81c784; }
+</style>
+</head>
+<body>
+<div class="window">
+  <!-- 标题栏 -->
+  <div class="titlebar">
+    <div class="dots">
+      <div class="dot dot-red"></div>
+      <div class="dot dot-yellow"></div>
+      <div class="dot dot-green"></div>
+    </div>
+    <div class="title">95沉默 · 自动挂机 v1.0</div>
+  </div>
+
+  <div class="content">
+    <!-- 左侧导航 -->
+    <div class="sidebar">
+      <div class="sidebar-item active"><span class="icon">📋</span> 总览</div>
+      <div class="sidebar-item"><span class="icon">🚪</span> NPC传送</div>
+      <div class="sidebar-item"><span class="icon">🎯</span>  </span> 自动打怪</div>
+      <div class="sidebar-item"><span class="icon">⚔️</span> 职业技能</div>
+      <div class="sidebar-item"><span class="icon">🗺️</span> 地图路径</div>
+      <div class="sidebar-divider"></div>
+      <div class="sidebar-item"><span class="icon">🟡</span> 黄点躲避</div>
+      <div class="sidebar-item"><span class="icon">📊</span> 统计信息</div>
+      <div class="sidebar-item"><span class="icon">⚙️</span> 设置</div>
+    </div>
+
+    <!-- 主面板 -->
+    <div class="main">
+      <!-- 总览面板 -->
+      <div class="panel-title">📋 总览面板</div>
+      <div class="panel-desc">自动挂机流程：NPC传送员飞图 → 小地图红点检测 → 自动打怪</div>
+
+      <!-- 当前模式 -->
+      <div class="config-group">
+        <span class="label">🔄 当前模式</span>
+        <span class="mode-badge mode-hunt">打怪模式</span>
+      </div>
+
+      <!-- 状态卡片 -->
+      <div style="display:flex; gap:10px; margin-bottom:12px;">
+        <div style="flex:1; background:#12122a; border-radius:8px; padding:12px;">
+          <div style="font-size:11px; color:#888;">窗口状态</div>
+          <div style="font-size:14px; color:#81c784; margin-top:4px;">✅ 已连接</div>
+          <div style="font-size:11px; color:#666; margin-top:2px;">九五沉默 #1</div>
+        </div>
+        <div style="flex:1; background:#12122a; border-radius:8px; padding:12px;">
+          <div style="font-size:11px; color:#888;">小地图</div>
+          <div style="font-size:14px; color:#64b5f6; margin-top:4px;">150×150 px</div>
+          <div style="font-size:11px; color:#666; margin-top:2px;">右上角 偏移10,10</div>
+        </div>
+        <div style="flex:1; background:#12122a; border-radius:8px; padding:12px;">
+          <div style="font-size:11px; color:#888;">运行时长</div>
+          <div style="font-size:14px; color:#fff; margin-top:4px;">12分18秒</div>
+        </div>
+      </div>
+
+      <!-- NPC传送配置 -->
+      <div style="display:flex; gap:10px; margin-bottom:10px;">
+        <div style="flex:55%; background:#12122a; border-radius:8px; padding:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <span style="font-size:13px; font-weight:600; color:#4fc3f7;">🚪 NPC传送员</span>
+            <div class="toggle on"></div>
+          </div>
+          <div style="font-size:12px; color:#999; margin-bottom:6px;">传送到</div>
+          <div class="key-tags">
+            <span class="key-tag" style="background:#0d47a1; color:#64b5f6;">石墓阵</span>
+            <span class="key-tag">猪洞</span>
+            <span class="key-tag">蜈蚣洞</span>
+            <span class="key-tag">矿区</span>
+          </div>
+          <div style="font-size:11px; color:#666; margin-top:6px;">NPC坐标: (330, 330)</div>
+        </div>
+        </div>
+        <div style="flex:45%; background:#12122a; border-radius:8px; padding:12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <span style="font-size:13px; font-weight:600; color:#ef5350;">🎯 自动打怪</span>
+            <div class="toggle on"></div>
+          </div>
+          <div style="font-size:12px; color:#999; margin-bottom:6px;">技能循环</div>
+          <div class="key-tags">
+            <span class="key-tag">F1</span>
+            <span class="key-tag">F2</span>
+            <span class="key-tag">F3</span>
+          </div>
+          <div style="font-size:11px; color:#666; margin-top:6px;">
+            间隔 0.5s · 轮换间隔 2.0s
+          </div>
+        </div>
+      </div>
+
+      <!-- 职业技能配置 -->
+      <div style="background:#12122a; border-radius:8px; padding:12px; margin-bottom:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <span style="font-size:13px; font-weight:600; color:#ffb74d;">⚔️ 职业自动技能</span>
+          <div class="toggle on"></div>
+        </div>
+        <div style="display:flex; gap:20px; font-size:12px;">
+          <div><span style="color:#888;">职业</span> <span style="color:#fff; margin-left:6px;"= "战士</span></div>
+          <div><span style="color:#888;">喝药</span> <span style="color:#81c784; margin-left:6px;">HP 键1 · MP 键6</span></div>
+          <div><span style="color:#888;">技能</span> <span style="color:#64b5f6; margin-left:6px;">烈火·攻杀·野蛮</span></div>
+        </div>
+      </div>
+
+      <!-- 日志 -->
+      <div class="log-area">
+        <div class="log-line ok">[10:32:01] ✅ 找到游戏窗口: 九五沉默</div>
+        <div class="log-line info">[10:32:01]小地图区域: 右10, 上10, 150x150</div>
+        <div class="log-line ok">[10:32:02]模式: NPC传送 → 石墓阵</div>
+        <div class="log-line action">[10:32:08]已到达NPC位置，打开对话框</div>
+        <div class="log-line action">[10:32:10]已点击地图按钮: 石墓阵</div>
+        <div class="log-line ok">[10:32:13]传送完成 → 石墓阵</div>
+        <div class="log-line ok">[10:32:13]切换模式: 自动打怪</div>
+        <div class="log-line action">[10:32:15]检测到 3 个红点（怪物）</div>
+        <div class="log-line action">[10:32:17]攻击 [F1] (技能1/3)</div>
+        <div class="log-line action">[10:32:18]攻击 [F2] (技能2/3)</div>
+        <div class="log-line action">[10:32:18]攻击 [F3] (技能3/3)</div>
+        <div class="log-line info">[10:32:25]检测到黄点 - 其他玩家!</div>
+        <div class="log-line action">[10:32:25]已使用随机传送石 (快捷键: 2)</div>
+      </div>
+
+      <!-- 底部 -->
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+        <div class="stats-bar">
+          <span>🟡 黄点 <b style="color:#fff;">37</b></span>
+          <span>🔴 怪物 <b style="color:#fff;">128</b></span>
+          <span>📡 传送 <b style="color:#fff;">15</b></span>
+          <span>⚔️ 攻击 <b style="color:#fff;">203</b></span>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-stop">停止</button>
+          <button class="btn btn-start" style="opacity:0.5; cursor:not-allowed;">▶ 启动</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

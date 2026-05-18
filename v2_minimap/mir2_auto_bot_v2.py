@@ -231,13 +231,15 @@ class Mir2AutoBotV2:
         self.minimap_detector.min_contour_area = config.getint('Detection', 'min_contour_area', fallback=1)
 
     def find_game_window(self) -> bool:
-        """查找游戏窗口"""
+        """查找游戏窗口 - 支持自定义标题，找不到时列出所有窗口"""
         window_title = self.config.get('Game', 'window_title', fallback='九五沉默')
-        possible_titles = [window_title, 'Legend of Mir2', '传奇']
+        possible_titles = [window_title, 'Legend of Mir2', '传奇', 'Mir2', 'mir2']
 
         def callback(hwnd, windows):
             if win32gui.IsWindowVisible(hwnd):
                 title = win32gui.GetWindowText(hwnd)
+                if not title:
+                    return True
                 for possible_title in possible_titles:
                     if possible_title.lower() in title.lower():
                         # 检查客户区是否有效
@@ -245,8 +247,8 @@ class Mir2AutoBotV2:
                             client_rect = win32gui.GetClientRect(hwnd)
                             client_width = client_rect[2] - client_rect[0]
                             client_height = client_rect[3] - client_rect[1]
-                            if client_width > 0 and client_height > 0:
-                                windows.append((hwnd, title))
+                            if client_width > 100 and client_height > 100:
+                                windows.append((hwnd, title, client_width, client_height))
                         except:
                             pass
             return True
@@ -257,16 +259,64 @@ class Mir2AutoBotV2:
         if windows:
             # 根据窗口索引选择窗口
             if self.window_index < len(windows):
-                self.hwnd, self.window_title = windows[self.window_index]
+                self.hwnd, self.window_title = windows[self.window_index][:2]
                 logger.info(f"找到 {len(windows)} 个游戏窗口，选择第 {self.window_index + 1} 个窗口")
             else:
                 logger.warning(f"窗口索引 {self.window_index} 超出范围（共 {len(windows)} 个窗口），使用第一个窗口")
-                self.hwnd, self.window_title = windows[0]
+                self.hwnd, self.window_title = windows[0][:2]
             
             self._init_window_info()
             return True
         else:
-            logger.error("未找到游戏窗口")
+            logger.warning("未找到匹配标题的窗口，扫描所有可见窗口...")
+            return self._scan_all_windows()
+
+    def _scan_all_windows(self) -> bool:
+        """扫描所有可见窗口，让用户选择"""
+        def callback(hwnd, windows):
+            if win32gui.IsWindowVisible(hwnd):
+                title = win32gui.GetWindowText(hwnd)
+                if not title:
+                    return True
+                try:
+                    client_rect = win32gui.GetClientRect(hwnd)
+                    w = client_rect[2] - client_rect[0]
+                    h = client_rect[3] - client_rect[1]
+                    if w > 200 and h > 200:  # 只显示大于200x200的窗口
+                        windows.append((hwnd, title, w, h))
+                except:
+                    pass
+            return True
+
+        windows = []
+        win32gui.EnumWindows(callback, windows)
+
+        if not windows:
+            logger.error("没有找到任何可见窗口（>200x200）")
+            return False
+
+        print("\n" + "=" * 50)
+        print("可用的窗口列表：")
+        print("=" * 50)
+        for i, (hwnd, title, w, h) in enumerate(windows):
+            print(f"  [{i}] {title} ({w}x{h})")
+        print("=" * 50)
+
+        try:
+            choice = input("请选择窗口编号（回车默认0）: ").strip()
+            if choice == '':
+                choice = 0
+            else:
+                choice = int(choice)
+            if choice < 0 or choice >= len(windows):
+                logger.error(f"无效选择: {choice}")
+                return False
+            self.hwnd, self.window_title = windows[choice][:2]
+            logger.info(f"已选择窗口: {self.window_title}")
+            self._init_window_info()
+            return True
+        except (ValueError, EOFError):
+            logger.error("输入无效")
             return False
 
     def _init_window_info(self):

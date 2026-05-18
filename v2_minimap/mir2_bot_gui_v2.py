@@ -24,11 +24,13 @@ from typing import Optional, Tuple, List
 from PIL import Image, ImageTk
 import ctypes
 
-# 导入新模块
-from map_detector import MapDetector
-from status_monitor import StatusMonitor
+# 新功能模块
+from npc_teleporter import NpcTeleporter, MonsterHunter
+from bot_engine import SmartEngine, BotState
 from class_skills import ClassSkillManager
 from auto_nav import AutoNavigator
+from map_detector import MapDetector
+from status_monitor import StatusMonitor
 
 # 获取脚本所在目录
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -92,9 +94,32 @@ class Mir2AutoBotV2:
         self.status_monitor = StatusMonitor()
         self._init_status_monitor()
 
-        # 道士技能管理器
-        self.taoist_skills = TaoistSkillManager()
-        self._init_taoist_skills()
+        # ===== NPC传送器 =====
+        self.npc_teleporter = NpcTeleporter()
+        self.npc_teleporter.enabled = self.config.getboolean('NpcTeleport', 'enabled', fallback=False)
+        self.npc_teleporter.find_npc_mode = self.config.get('NpcTeleport', 'find_npc_mode', fallback='none')
+        self.npc_teleporter.target_dungeon_row = self.config.getint('NpcTeleport', 'target_dungeon_row', fallback=1)
+
+        # ===== 怪物猎手 =====
+        self.monster_hunter = MonsterHunter()
+        self.monster_hunter.enabled = self.config.getboolean('MonsterHunt', 'enabled', fallback=False)
+        keys_str = self.config.get('MonsterHunt', 'attack_keys', fallback='F1,F2')
+        self.monster_hunter.attack_keys = [k.strip() for k in keys_str.split(',') if k.strip()]
+        self.monster_hunter.attack_interval = self.config.getfloat('MonsterHunt', 'attack_interval', fallback=0.5)
+        self.monster_hunter.skill_rotation_interval = self.config.getfloat(
+            'MonsterHunt', 'skill_rotation_interval', fallback=2.0)
+
+        # ===== 职业技能（全职业） =====
+        self.class_skills = ClassSkillManager()
+        self.class_skills.enabled = self.config.getboolean('ClassSkills', 'enabled', fallback=False)
+        self.class_skills.class_name = self.config.get('ClassSkills', 'class_name', fallback='taoist')
+
+        # ===== 自动寻路 =====
+        self.auto_nav = AutoNavigator()
+        self.auto_nav.enabled = self.config.getboolean('AutoNav', 'enabled', fallback=False)
+
+        # ===== 状态机引擎 =====
+        self.engine = None  # 在 run_with_window 时初始化
 
         # 全屏截图缓存
         self._full_screen_cache = None
@@ -262,15 +287,16 @@ class Mir2AutoBotV2:
         except Exception as e:
             self._log(f"Init status monitor: {e}", "WARNING")
 
-    def _init_taoist_skills(self):
+    def _init_class_skills(self):
+        """从配置加载职业技能设置"""
         try:
-            section = self.config['TaoistSkills']
-            self.taoist_skills.enabled = section.getboolean('enabled', fallback=False)
-            if self.taoist_skills.enabled:
-                self.taoist_skills.update_from_config(section)
-                self._log("Taoist auto skills enabled")
+            section = self.config['ClassSkills']
+            self.class_skills.enabled = section.getboolean('enabled', fallback=False)
+            if self.class_skills.enabled:
+                self.class_skills.class_name = section.get('class_name', fallback='taoist')
+                self._log(f"职业技能已启用（{self.class_skills.class_name}）")
         except Exception as e:
-            self._log(f"Init taoist skills: {e}", "WARNING")
+            self._log(f"职业技能初始化: {e}", "WARNING")
 
     def find_game_window(self) -> bool:
         """查找游戏窗口"""
@@ -299,7 +325,9 @@ class Mir2AutoBotV2:
             self.hwnd, self.window_title = windows[0]
             self._init_window_info()
             if self.hwnd:
-                self.taoist_skills.set_hwnd(self.hwnd)
+                self.class_skills.set_hwnd(self.hwnd)
+                self.npc_teleporter.set_hwnd(self.hwnd)
+                self.monster_hunter.set_hwnd(self.hwnd)
             return True
         else:
             self._log("Game window not found", "ERROR")
@@ -470,25 +498,33 @@ class Mir2AutoBotV2:
             self._log(f"Teleport failed: {e}", "ERROR")
 
     def run(self):
-        """运行挂机脚本"""
-        self._log("Starting bot V2 (Background Capture Mode)...")
+        """启动挂机脚本（自动找窗口）"""
+        self._log("启动挂机 V2（后台截图模式）...")
 
         if not self.find_game_window():
-            self._log("Cannot find game window, exiting", "ERROR")
+            self._log("找不到游戏窗口，退出", "ERROR")
             return
 
         self.running = True
         self.stats['start_time'] = datetime.now()
-        self._log("Bot V2 started, press F10 to stop")
-        self._log("Background capture enabled - window can be occluded")
-
+        self._init_engine()
+        self._log("挂机已启动，F10可停止")
         self._run_loop()
 
     def run_with_window(self):
-        """使用已设置的窗口运行（GUI调用）"""
-        self._log("Bot V2 started, press F10 to stop")
-        self._log("Background capture enabled - window can be occluded")
+        """用已选窗口启动（GUI调用）"""
+        self._log("挂机已启动，F10可停止")
+        self._init_engine()
         self._run_loop()
+
+    def _init_engine(self):
+        """初始化状态机引擎"""
+        use_engine = (self.npc_teleporter.enabled or self.monster_hunter.enabled)
+        if use_engine:
+            self.engine = SmartEngine(self)
+            self._log("智能引擎已启用")
+        else:
+            self.engine = None
 
     def _run_loop(self):
         """主运行循环"""
@@ -498,46 +534,55 @@ class Mir2AutoBotV2:
                     time.sleep(0.1)
                     continue
 
-                # 检查窗口是否还存在
+                # 检查窗口
                 if not win32gui.IsWindow(self.hwnd):
-                    self._log("Game window closed", "WARNING")
+                    self._log("游戏窗口已关闭", "WARNING")
                     break
 
-                minimap = self.capture_minimap()
-                status_counter = getattr(self, '_status_counter', 0) + 1
-                self._status_counter = status_counter
-
-                if minimap is not None:
-                    self.stats['detection_runs'] += 1
-                    has_players, yellow_dots = self.detect_yellow_dots(minimap)
-
-                    # 定期获取全屏截图用于地图检测和状态监控
-                    full_screen = None
-                    check_interval = max(1, int(getattr(self.status_monitor, 'check_interval', 0.5) / 0.3))
-                    if self.map_detector.enabled or self.status_monitor.enabled:
-                        if status_counter % check_interval == 0 or has_players:
-                            full_screen = self.capture_full_screen()
-
-                    if has_players:
-                        self.use_teleport(full_screen)
-
-                    # 状态监控
-                    if self.status_monitor.enabled and status_counter % check_interval == 0:
-                        changed, s_type, msg = self.status_monitor.update(full_screen)
-                        if changed:
-                            self._log(f"[状态] {msg}", "WARNING")
-
-                # 道士自动技能
-                if self.taoist_skills.enabled:
-                    self.taoist_skills.tick()
+                # 使用智能引擎
+                if self.engine:
+                    self.engine.update()
+                    self.stats['current_state'] = self.engine.state.name
+                else:
+                    # 原始简单循环（只检测黄点传送）
+                    self._run_simple_loop()
 
                 detection_interval = self.config.getfloat('Detection', 'detection_interval', fallback=0.3)
                 time.sleep(detection_interval)
 
         except Exception as e:
-            self._log(f"Error: {e}", "ERROR")
+            self._log(f"错误: {e}", "ERROR")
         finally:
             self.stop()
+
+    def _run_simple_loop(self):
+        """简单循环：只检测黄点+自动技能"""
+        minimap = self.capture_minimap()
+        status_counter = getattr(self, '_status_counter', 0) + 1
+        self._status_counter = status_counter
+
+        if minimap is not None:
+            self.stats['detection_runs'] += 1
+            has_players, yellow_dots = self.detect_yellow_dots(minimap)
+
+            full_screen = None
+            check_interval = max(1, int(getattr(self.status_monitor, 'check_interval', 0.5) / 0.3))
+            if self.map_detector.enabled or self.status_monitor.enabled:
+                if status_counter % check_interval == 0 or has_players:
+                    full_screen = self.capture_full_screen()
+
+            if has_players:
+                self.use_teleport(full_screen)
+
+            # 状态监控
+            if self.status_monitor.enabled and status_counter % check_interval == 0:
+                changed, s_type, msg = self.status_monitor.update(full_screen)
+                if changed:
+                    self._log(f"[状态] {msg}", "WARNING")
+
+        # 职业技能
+        if self.class_skills.enabled:
+            self.class_skills.tick()
 
     def stop(self):
         """停止挂机脚本"""
@@ -547,8 +592,8 @@ class Mir2AutoBotV2:
     def pause(self):
         """暂停/继续"""
         self.paused = not self.paused
-        status = "Paused" if self.paused else "Resumed"
-        self._log(f"Bot {status}")
+        status = "已暂停" if self.paused else "已恢复"
+        self._log(f"挂机 {status}")
 
 class MinimapAdjustWindow:
     """小地图范围调整窗口"""
@@ -560,7 +605,7 @@ class MinimapAdjustWindow:
         self.config_file = config_file if config_file else CONFIG_FILE
 
         self.window = tk.Toplevel(parent)
-        self.window.title("Adjust Minimap Region")
+        self.window.title("调整小地图范围")
         self.window.geometry("900x650")
 
         self.full_screen_image = None
@@ -575,49 +620,49 @@ class MinimapAdjustWindow:
         control_frame1 = ttk.Frame(self.window, padding="10")
         control_frame1.pack(fill=tk.X)
 
-        ttk.Label(control_frame1, text="Offset X:").grid(row=0, column=0, padx=5, sticky='e')
+        ttk.Label(control_frame1, text="偏移 X:").grid(row=0, column=0, padx=5, sticky='e')
         self.offset_x_var = tk.StringVar(value=self.config.get('Minimap', 'offset_x', fallback='10'))
         ttk.Entry(control_frame1, textvariable=self.offset_x_var, width=8).grid(row=0, column=1, padx=5)
 
-        ttk.Label(control_frame1, text="Offset Y:").grid(row=0, column=2, padx=5, sticky='e')
+        ttk.Label(control_frame1, text="偏移 Y:").grid(row=0, column=2, padx=5, sticky='e')
         self.offset_y_var = tk.StringVar(value=self.config.get('Minimap', 'offset_y', fallback='10'))
         ttk.Entry(control_frame1, textvariable=self.offset_y_var, width=8).grid(row=0, column=3, padx=5)
 
-        ttk.Label(control_frame1, text="Width:").grid(row=0, column=4, padx=5, sticky='e')
+        ttk.Label(control_frame1, text="宽度:").grid(row=0, column=4, padx=5, sticky='e')
         self.width_var = tk.StringVar(value=self.config.get('Minimap', 'width', fallback='150'))
         ttk.Entry(control_frame1, textvariable=self.width_var, width=8).grid(row=0, column=5, padx=5)
 
-        ttk.Label(control_frame1, text="Height:").grid(row=0, column=6, padx=5, sticky='e')
+        ttk.Label(control_frame1, text="高度:").grid(row=0, column=6, padx=5, sticky='e')
         self.height_var = tk.StringVar(value=self.config.get('Minimap', 'height', fallback='150'))
         ttk.Entry(control_frame1, textvariable=self.height_var, width=8).grid(row=0, column=7, padx=5)
 
         self.from_right_var = tk.BooleanVar(value=self.config.getboolean('Minimap', 'from_right', fallback=True))
-        ttk.Checkbutton(control_frame1, text="From Right", variable=self.from_right_var).grid(row=0, column=8, padx=10)
+        ttk.Checkbutton(control_frame1, text="从右边", variable=self.from_right_var).grid(row=0, column=8, padx=10)
 
         control_frame2 = ttk.Frame(self.window, padding="5")
         control_frame2.pack(fill=tk.X)
 
-        ttk.Button(control_frame2, text="Preview", command=self._preview, width=10).pack(side=tk.LEFT, padx=10)
-        ttk.Button(control_frame2, text="Save", command=self._save, width=10).pack(side=tk.LEFT, padx=10)
-        ttk.Button(control_frame2, text="Refresh", command=self._capture_screen, width=10).pack(side=tk.LEFT, padx=10)
+        ttk.Button(control_frame2, text="预览", command=self._preview, width=10).pack(side=tk.LEFT, padx=10)
+        ttk.Button(control_frame2, text="保存", command=self._save, width=10).pack(side=tk.LEFT, padx=10)
+        ttk.Button(control_frame2, text="刷新画面", command=self._capture_screen, width=10).pack(side=tk.LEFT, padx=10)
 
         preset_frame = ttk.Frame(self.window, padding="5")
         preset_frame.pack(fill=tk.X)
 
-        ttk.Label(preset_frame, text="Presets:").pack(side=tk.LEFT, padx=5)
-        ttk.Button(preset_frame, text="Top-Right 150x150", command=lambda: self._apply_preset(10, 10, 150, 150, True)).pack(side=tk.LEFT, padx=2)
-        ttk.Button(preset_frame, text="Top-Right 160x160", command=lambda: self._apply_preset(5, 5, 160, 160, True)).pack(side=tk.LEFT, padx=2)
-        ttk.Button(preset_frame, text="Top-Right 130x130", command=lambda: self._apply_preset(15, 15, 130, 130, True)).pack(side=tk.LEFT, padx=2)
+        ttk.Label(preset_frame, text="预设:").pack(side=tk.LEFT, padx=5)
+        ttk.Button(preset_frame, text="右上 150x150", command=lambda: self._apply_preset(10, 10, 150, 150, True)).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_frame, text="右上 160x160", command=lambda: self._apply_preset(5, 5, 160, 160, True)).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_frame, text="右上 130x130", command=lambda: self._apply_preset(15, 15, 130, 130, True)).pack(side=tk.LEFT, padx=2)
 
         self.canvas = tk.Canvas(self.window, bg='black')
         self.canvas.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        self.status_label = ttk.Label(self.window, text="Click 'Refresh' to capture game screen")
+        self.status_label = ttk.Label(self.window, text="点击「刷新画面」捕获游戏画面")
         self.status_label.pack(fill=tk.X, padx=10, pady=5)
 
     def _capture_screen(self):
         """后台捕获游戏画面"""
-        self.status_label.config(text="Capturing game screen (background mode)...")
+        self.status_label.config(text="正在后台捕获游戏画面...")
 
         temp_bot = Mir2AutoBotV2()
         if temp_bot.find_game_window():
@@ -625,11 +670,11 @@ class MinimapAdjustWindow:
             self.client_rect = temp_bot.client_rect
             if self.full_screen_image is not None:
                 self._preview()
-                self.status_label.config(text="Screen captured successfully (background mode)")
+                self.status_label.config(text="截图成功（后台模式）")
             else:
-                self.status_label.config(text="Failed to capture screen")
+                self.status_label.config(text="截图失败")
         else:
-            self.status_label.config(text="Game window not found")
+            self.status_label.config(text="未找到游戏窗口")
 
     def _apply_preset(self, offset_x, offset_y, width, height, from_right):
         """应用预设"""
@@ -643,7 +688,7 @@ class MinimapAdjustWindow:
     def _preview(self):
         """预览小地图区域"""
         if self.full_screen_image is None:
-            messagebox.showwarning("Warning", "Please capture screen first")
+            messagebox.showwarning("提示", "请先捕获游戏画面")
             return
 
         try:
@@ -663,7 +708,7 @@ class MinimapAdjustWindow:
 
             preview = self.full_screen_image.copy()
             cv2.rectangle(preview, (x, y), (x + width, y + height), (0, 255, 0), 2)
-            cv2.putText(preview, f"Minimap: {width}x{height}", (x, y - 10),
+            cv2.putText(preview, f"小地图: {width}x{height}", (x, y - 10),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
             preview_rgb = cv2.cvtColor(preview, cv2.COLOR_BGR2RGB)
@@ -690,7 +735,7 @@ class MinimapAdjustWindow:
             self.status_label.config(text=f"Minimap region: x={x}, y={y}, w={width}, h={height}")
 
         except ValueError as e:
-            messagebox.showerror("Error", f"Invalid parameter: {e}")
+            messagebox.showerror("错误", f"参数无效: {e}")
 
     def _save(self):
         """保存设置"""
@@ -711,15 +756,15 @@ class MinimapAdjustWindow:
             if self.config:
                 self.config.read(self.config_file, encoding='utf-8')
 
-            self.status_label.config(text="Settings saved successfully!")
-            messagebox.showinfo("Success", f"Settings saved to {os.path.basename(self.config_file)}")
+            self.status_label.config(text="设置已保存!")
+            messagebox.showinfo("成功", f"设置已保存到 {os.path.basename(self.config_file)}")
 
             if self.on_save_callback:
                 self.on_save_callback()
             self.window.destroy()
 
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to save: {e}")
+            messagebox.showerror("错误", f"保存失败: {e}")
 
 class BotGUI:
     """图形界面"""
@@ -733,8 +778,8 @@ class BotGUI:
         self.instance_id = BotGUI._instance_counter
         
         self.root = tk.Tk()
-        self.root.title(f"Legend of Mir 2 Auto Bot V2 - Background Capture (Instance {self.instance_id})")
-        self.root.geometry("700x600")
+        self.root.title(f"九五沉默自动挂机 V2 (实例 {self.instance_id})")
+        self.root.geometry("720x780")
         self.root.resizable(True, True)
 
         self.bot = None
@@ -775,111 +820,170 @@ class BotGUI:
         if os.path.exists(self.config_file):
             config.read(self.config_file, encoding='utf-8')
         
-        return config
-
     def _create_widgets(self):
-        """创建界面组件"""
+        """创建界面组件（中文）"""
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        title_label = ttk.Label(main_frame, text="Bot V2 - Background Capture Mode",
+        title_label = ttk.Label(main_frame, text="九五沉默自动挂机 V2",
                                 font=('Arial', 14, 'bold'))
-        title_label.pack(pady=5)
+        title_label.pack(pady=2)
 
         desc_label = ttk.Label(main_frame,
-                               text="Detect yellow dots in minimap - Window can be occluded",
-                               font=('Arial', 10))
-        desc_label.pack(pady=2)
+                               text="后台截图 | 检测黄点/红点 | NPC传送 | 自动打怪 | 职业技能 | 自动寻路",
+                               font=('Arial', 9))
+        desc_label.pack(pady=1)
 
         # 热键提示
         hotkey_label = ttk.Label(main_frame,
-                                text="Hotkeys: F9=Show/Hide | F10=Stop Bot",
+                                text="F9=隐藏窗口  |  F10=停止挂机",
                                 font=('Arial', 9, 'italic'),
                                 foreground='gray')
         hotkey_label.pack(pady=2)
 
-        # 窗口选择框架
-        window_frame = ttk.LabelFrame(main_frame, text="Game Window", padding="5")
-        window_frame.pack(fill=tk.X, pady=5)
+        # ===== 窗口选择 =====
+        window_frame = ttk.LabelFrame(main_frame, text="游戏窗口", padding="5")
+        window_frame.pack(fill=tk.X, pady=3)
 
         window_row = ttk.Frame(window_frame)
         window_row.pack(fill=tk.X, pady=2)
 
-        ttk.Label(window_row, text="Select Window:").pack(side=tk.LEFT, padx=5)
+        ttk.Label(window_row, text="选择窗口:").pack(side=tk.LEFT, padx=5)
         self.window_combo = ttk.Combobox(window_row, width=40, state='readonly')
         self.window_combo.pack(side=tk.LEFT, padx=5)
-        ttk.Button(window_row, text="Refresh", command=self.refresh_windows, width=8).pack(side=tk.LEFT, padx=5)
+        ttk.Button(window_row, text="刷新", command=self.refresh_windows, width=6).pack(side=tk.LEFT, padx=5)
 
-        self.window_info_label = ttk.Label(window_frame, text="No window selected", font=('Arial', 9))
+        self.window_info_label = ttk.Label(window_frame, text="未选择窗口", font=('Arial', 9))
         self.window_info_label.pack(anchor=tk.W, padx=5)
 
+        # ===== 控制按钮 =====
         control_frame = ttk.Frame(main_frame)
-        control_frame.pack(fill=tk.X, pady=10)
+        control_frame.pack(fill=tk.X, pady=5)
 
-        self.start_btn = ttk.Button(control_frame, text="Start", command=self.start_bot, width=12)
-        self.start_btn.pack(side=tk.LEFT, padx=5)
+        self.start_btn = ttk.Button(control_frame, text="开始", command=self.start_bot, width=10)
+        self.start_btn.pack(side=tk.LEFT, padx=3)
 
-        self.stop_btn = ttk.Button(control_frame, text="Stop", command=self.stop_bot, width=12, state=tk.DISABLED)
-        self.stop_btn.pack(side=tk.LEFT, padx=5)
+        self.stop_btn = ttk.Button(control_frame, text="停止", command=self.stop_bot, width=10, state=tk.DISABLED)
+        self.stop_btn.pack(side=tk.LEFT, padx=3)
 
-        self.pause_btn = ttk.Button(control_frame, text="Pause", command=self.pause_bot, width=12, state=tk.DISABLED)
-        self.pause_btn.pack(side=tk.LEFT, padx=5)
+        self.pause_btn = ttk.Button(control_frame, text="暂停", command=self.pause_bot, width=10, state=tk.DISABLED)
+        self.pause_btn.pack(side=tk.LEFT, padx=3)
 
-        self.test_btn = ttk.Button(control_frame, text="Test Detection", command=self.test_detection, width=12)
-        self.test_btn.pack(side=tk.LEFT, padx=5)
+        self.test_btn = ttk.Button(control_frame, text="测试检测", command=self.test_detection, width=10)
+        self.test_btn.pack(side=tk.LEFT, padx=3)
 
-        self.adjust_btn = ttk.Button(control_frame, text="Adjust Minimap", command=self.adjust_minimap, width=12)
-        self.adjust_btn.pack(side=tk.LEFT, padx=5)
+        self.adjust_btn = ttk.Button(control_frame, text="调整小地图", command=self.adjust_minimap, width=10)
+        self.adjust_btn.pack(side=tk.LEFT, padx=3)
 
-        status_frame = ttk.LabelFrame(main_frame, text="Status", padding="5")
-        status_frame.pack(fill=tk.X, pady=5)
+        # ===== 功能开关（新） =====
+        features_frame = ttk.LabelFrame(main_frame, text="功能开关", padding="8")
+        features_frame.pack(fill=tk.X, pady=3)
 
-        self.status_label = ttk.Label(status_frame, text="Status: Stopped", font=('Arial', 10))
+        # --- NPC传送 ---
+        npc_row = ttk.Frame(features_frame)
+        npc_row.pack(fill=tk.X, pady=1)
+        self.npc_enabled_var = tk.BooleanVar(
+            value=self.config.getboolean('NpcTeleport', 'enabled', fallback=False))
+        ttk.Checkbutton(npc_row, text="NPC传送", variable=self.npc_enabled_var).pack(side=tk.LEFT, padx=5)
+        ttk.Label(npc_row, text="模式:").pack(side=tk.LEFT, padx=2)
+        self.npc_mode_var = tk.StringVar(
+            value=self.config.get('NpcTeleport', 'find_npc_mode', fallback='color'))
+        ttk.Combobox(npc_row, textvariable=self.npc_mode_var, values=['none', 'color', 'image', 'auto'],
+                     width=8, state='readonly').pack(side=tk.LEFT, padx=2)
+        ttk.Label(npc_row, text="行数:").pack(side=tk.LEFT, padx=2)
+        self.npc_row_var = tk.StringVar(
+            value=self.config.get('NpcTeleport', 'target_dungeon_row', fallback='1'))
+        ttk.Spinbox(npc_row, from_=1, to=20, textvariable=self.npc_row_var, width=4).pack(side=tk.LEFT, padx=2)
+
+        # --- 自动打怪 ---
+        hunt_row = ttk.Frame(features_frame)
+        hunt_row.pack(fill=tk.X, pady=1)
+        self.hunt_enabled_var = tk.BooleanVar(
+            value=self.config.getboolean('MonsterHunt', 'enabled', 'enabled', fallback=False))
+        ttk.Checkbutton(hunt_row, text="自动打怪", variable=self.hunt_enabled_var).pack(side=tk.LEFT, padx=5)
+        ttk.Label(hunt_row, text="技能键:").pack(side=tk.LEFT, padx=2)
+        self.hunt_keys_var = tk.StringVar(
+            value=self.config.get('MonsterHunt', 'attack_keys', fallback='F1,F2,F3'))
+        ttk.Entry(hunt_row, textvariable=self.hunt_keys_var, width=16).pack(side=tk.LEFT, padx=2)
+        ttk.Label(hunt_row, text="间隔:").pack(side=tk.LEFT, padx=2)
+        self.hunt_interval_var = tk.StringVar(
+            value=self.config.get('MonsterHunt', 'attack_interval', fallback='0.5'))
+        ttk.Entry(hunt_row, textvariable=self.hunt_interval_var, width=5).pack(side=tk.LEFT, padx=2)
+
+        # --- 职业技能 ---
+        skill_row = ttk.Frame(features_frame)
+        skill_row.pack(fill=tk.X, pady=1)
+        self.skill_enabled_var = tk.BooleanVar(
+            value=self.config.getboolean('ClassSkills', 'enabled', fallback=False))
+        ttk.Checkbutton(skill_row, text="职业技能", variable=self.skill_enabled_var).pack(side=tk.LEFT, padx=5)
+        ttk.Label(skill_row, text="职业:").pack(side=tk.LEFT, padx=2)
+        self.class_var = tk.StringVar(
+            value=self.config.get('ClassSkills', 'class_name', fallback='taoist'))
+        ttk.Combobox(skill_row, textvariable=self.class_var, values=['warrior', 'wizard', 'taoist'],
+                     width=8, state='readonly').pack(side=tk.LEFT, padx=2)
+
+        # --- 自动寻路 ---
+        nav_row = ttk.Frame(features_frame)
+        nav_row.pack(fill=tk.X, pady=1)
+        self.nav_enabled_var = tk.BooleanVar(
+            value=self.config.getboolean('AutoNav', 'enabled', fallback=False))
+        ttk.Checkbutton(nav_row, text="自动寻路", variable=self.nav_enabled_var).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(nav_row, text="保存功能", command=self.save_features_settings, width=8).pack(side=tk.RIGHT, padx=5)
+
+        # ===== 状态 =====
+        status_frame = ttk.LabelFrame(main_frame, text="状态", padding="5")
+        status_frame.pack(fill=tk.X, pady=3)
+
+        self.status_label = ttk.Label(status_frame, text="状态：未启动", font=('Arial', 10))
         self.status_label.pack(anchor=tk.W)
 
-        self.stats_label = ttk.Label(status_frame, text="Detections: 0 | Teleports: 0", font=('Arial', 10))
+        self.stats_label = ttk.Label(status_frame, text="检测: 0 | 黄点: 0 | 传送: 0", font=('Arial', 9))
         self.stats_label.pack(anchor=tk.W)
 
-        self.minimap_label = ttk.Label(status_frame, text="Minimap: Not set", font=('Arial', 10))
+        self.minimap_label = ttk.Label(status_frame, text="小地图: 未设置", font=('Arial', 9))
         self.minimap_label.pack(anchor=tk.W)
 
-        log_frame = ttk.LabelFrame(main_frame, text="Log", padding="5")
-        log_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        # ===== 运行日志 =====
+        log_frame = ttk.LabelFrame(main_frame, text="运行日志", padding="5")
+        log_frame.pack(fill=tk.BOTH, expand=True, pady=3)
 
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=8, font=('Consolas', 9))
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=8, font=("Consolas", 9))
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
-        settings_frame = ttk.LabelFrame(main_frame, text="Quick Settings", padding="10")
-        settings_frame.pack(fill=tk.X, pady=5)
+        # ===== 快速设置 =====
+        settings_frame = ttk.LabelFrame(main_frame, text="快速设置", padding="8")
+        settings_frame.pack(fill=tk.X, pady=3)
 
         row1_frame = ttk.Frame(settings_frame)
         row1_frame.pack(fill=tk.X, pady=2)
 
-        ttk.Label(row1_frame, text="Teleport Key:").pack(side=tk.LEFT, padx=5)
-        self.teleport_key_var = tk.StringVar(value=self.config.get('Teleport', 'teleport_key', fallback='2'))
-        ttk.Entry(row1_frame, textvariable=self.teleport_key_var, width=5).pack(side=tk.LEFT, padx=5)
+        ttk.Label(row1_frame, text="传送键:").pack(side=tk.LEFT, padx=5)
+        self.teleport_key_var = tk.StringVar(value=self.config.get("Teleport", "teleport_key", fallback="2"))
+        ttk.Entry(row1_frame, textvariable=self.teleport_key_var, width=5).pack(side=tk.LEFT, padx=2)
 
-        ttk.Label(row1_frame, text="Cooldown (s):").pack(side=tk.LEFT, padx=5)
-        self.cooldown_var = tk.StringVar(value=self.config.get('Teleport', 'cooldown', fallback='4.0'))
-        ttk.Entry(row1_frame, textvariable=self.cooldown_var, width=8).pack(side=tk.LEFT, padx=5)
+        ttk.Label(row1_frame, text="冷却(秒):").pack(side=tk.LEFT, padx=5)
+        self.cooldown_var = tk.StringVar(value=self.config.get("Teleport", "cooldown", fallback="4.0"))
+        ttk.Entry(row1_frame, textvariable=self.cooldown_var, width=6).pack(side=tk.LEFT, padx=2)
 
-        ttk.Label(row1_frame, text="Interval (s):").pack(side=tk.LEFT, padx=5)
-        self.interval_var = tk.StringVar(value=self.config.get('Detection', 'detection_interval', fallback='0.3'))
-        ttk.Entry(row1_frame, textvariable=self.interval_var, width=8).pack(side=tk.LEFT, padx=5)
+        ttk.Label(row1_frame, text="检测间隔(秒):").pack(side=tk.LEFT, padx=5)
+        self.interval_var = tk.StringVar(value=self.config.get("Detection", "detection_interval", fallback="0.3"))
+        ttk.Entry(row1_frame, textvariable=self.interval_var, width=6).pack(side=tk.LEFT, padx=2)
 
-        ttk.Button(row1_frame, text="Save Settings", command=self.save_settings, width=12).pack(side=tk.LEFT, padx=20)
+        ttk.Button(row1_frame, text="保存设置", command=self.save_settings, width=10).pack(side=tk.LEFT, padx=10)
 
         self._update_minimap_label()
-        
+
         # 存储找到的窗口
         self.found_windows = []
-        
+
         # 初始刷新窗口列表
         self.root.after(500, self.refresh_windows)
 
+
     def refresh_windows(self):
         """刷新游戏窗口列表"""
-        self.log("Scanning for game windows...")
+        self.log("正在扫描游戏窗口...")
         self.found_windows = []
         
         window_title = self.config.get('Game', 'window_title', fallback='九五沉默')
@@ -909,11 +1013,11 @@ class BotGUI:
         if window_names:
             self.window_combo.current(0)
             self._on_window_selected()
-            self.log(f"Found {len(self.found_windows)} game window(s)")
+            self.log(f"找到 {len(self.found_windows)} 个游戏窗口")
         else:
             self.window_combo.set('')
-            self.window_info_label.config(text="No game window found")
-            self.log("No game window found", "WARNING")
+            self.window_info_label.config(text="未找到游戏窗口")
+            self.log("未找到游戏窗口", "WARNING")
 
     def _on_window_selected(self, event=None):
         """窗口选择变化时的回调"""
@@ -934,7 +1038,7 @@ class BotGUI:
         width = self.config.get('Minimap', 'width', fallback='150')
         height = self.config.get('Minimap', 'height', fallback='150')
         from_right = self.config.get('Minimap', 'from_right', fallback='true')
-        self.minimap_label.config(text=f"Minimap: offset=({offset_x},{offset_y}), size={width}x{height}, from_right={from_right}")
+        self.minimap_label.config(text=f"小地图: offset=({offset_x},{offset_y}), 大小={width}x{height}, from_right={from_right}")
 
     def log(self, message: str, level: str = "INFO"):
         """添加日志"""
@@ -945,28 +1049,28 @@ class BotGUI:
 
     def update_status(self, status: str):
         """更新状态"""
-        self.status_label.config(text=f"Status: {status}")
+        self.status_label.config(text=f"状态：{status}")
 
     def update_stats(self):
         """更新统计"""
         if self.bot:
             stats = self.bot.stats
+            state = stats.get('current_state', 'IDLE')
             self.stats_label.config(
-                text=f"Detections: {stats['detection_runs']} | Yellow Dots: {stats['yellow_dots_detected']} | Teleports: {stats['teleports_used']}"
+                text=f"检测: {stats['detection_runs']} | 黄点: {stats['yellow_dots_detected']} | 红点: {stats.get('red_dots_detected', 0)} | 传送: {stats['teleports_used']} | 状态: {state}"
             )
 
     def start_bot(self):
         """启动机器人"""
-        # 检查是否选择了窗口
         selection = self.window_combo.current()
         if selection < 0 or selection >= len(self.found_windows):
-            messagebox.showwarning("Warning", "Please select a game window first")
+            messagebox.showwarning("提示", "请先选择游戏窗口")
             return
 
         hwnd, title = self.found_windows[selection]
-        self.log(f"Starting bot for window: {title}")
+        self.log(f"启动挂机，窗口: {title}")
         
-        # 使用实例专用的配置文件创建bot
+        # 创建bot实例
         self.bot = Mir2AutoBotV2(config_file=self.config_file, log_callback=self.log)
 
         # 设置选中的窗口
@@ -974,9 +1078,25 @@ class BotGUI:
         self.bot.window_title = title
         self.bot._init_window_info()
 
+        # 传递快速设置
         self.bot.config.set('Teleport', 'teleport_key', self.teleport_key_var.get())
         self.bot.config.set('Teleport', 'cooldown', self.cooldown_var.get())
         self.bot.config.set('Detection', 'detection_interval', self.interval_var.get())
+
+        # 传递功能开关设置
+        self.bot.npc_teleporter.enabled = self.npc_enabled_var.get()
+        self.bot.npc_teleporter.find_npc_mode = self.npc_mode_var.get()
+        self.bot.npc_teleporter.target_dungeon_row = int(self.npc_row_var.get())
+
+        self.bot.monster_hunter.enabled = self.hunt_enabled_var.get()
+        keys_str = self.hunt_keys_var.get()
+        self.bot.monster_hunter.attack_keys = [k.strip() for k in keys_str.split(',') if k.strip()]
+        self.bot.monster_hunter.attack_interval = float(self.hunt_interval_var.get())
+
+        self.bot.class_skills.enabled = self.skill_enabled_var.get()
+        self.bot.class_skills.class_name = self.class_var.get()
+
+        self.bot.auto_nav.enabled = self.nav_enabled_var.get()
 
         self.bot.running = True
         self.bot.stats['start_time'] = datetime.now()
@@ -988,12 +1108,12 @@ class BotGUI:
         self.stop_btn.config(state=tk.NORMAL)
         self.pause_btn.config(state=tk.NORMAL)
         self.adjust_btn.config(state=tk.DISABLED)
-        self.update_status("Running")
+        self.update_status("运行中")
 
         self._update_stats_loop()
 
     def stop_bot(self):
-        """停止机器人"""
+        """停止挂机"""
         if self.bot:
             self.bot.stop()
             self.bot = None
@@ -1002,16 +1122,16 @@ class BotGUI:
         self.stop_btn.config(state=tk.DISABLED)
         self.pause_btn.config(state=tk.DISABLED)
         self.adjust_btn.config(state=tk.NORMAL)
-        self.update_status("Stopped")
-        self.log("Bot stopped")
+        self.update_status("已停止")
+        self.log("挂机已停止")
 
     def pause_bot(self):
         """暂停/继续"""
         if self.bot:
             self.bot.pause()
-            status = "Paused" if self.bot.paused else "Running"
+            status = "已暂停" if self.bot.paused else "运行中"
             self.update_status(status)
-            self.pause_btn.config(text="Resume" if self.bot.paused else "Pause")
+            self.pause_btn.config(text="继续" if self.bot.paused else "暂停")
 
     def toggle_window(self):
         """切换窗口显示/隐藏"""
@@ -1026,14 +1146,13 @@ class BotGUI:
 
     def test_detection(self):
         """测试检测"""
-        # 检查是否选择了窗口
         selection = self.window_combo.current()
         if selection < 0 or selection >= len(self.found_windows):
-            messagebox.showwarning("Warning", "Please select a game window first")
+            messagebox.showwarning("提示", "请先选择游戏窗口")
             return
 
         hwnd, title = self.found_windows[selection]
-        self.log(f"Testing detection for window: {title}")
+        self.log(f"测试检测，窗口: {title}")
         
         test_bot = Mir2AutoBotV2(log_callback=self.log)
         test_bot.hwnd = hwnd
@@ -1043,15 +1162,15 @@ class BotGUI:
         minimap = test_bot.capture_minimap()
         if minimap is not None:
             has_players, yellow_dots = test_bot.detect_yellow_dots(minimap)
-            self.log(f"Test result: {len(yellow_dots)} yellow dots, players: {has_players}")
+            self.log(f"测试结果: {len(yellow_dots)} 个黄点，发现玩家: {has_players}")
 
             debug_dir = os.path.join(SCRIPT_DIR, 'debug')
             os.makedirs(debug_dir, exist_ok=True)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             cv2.imwrite(os.path.join(debug_dir, f'test_minimap_{timestamp}.jpg'), minimap)
-            self.log(f"Minimap saved to debug/test_minimap_{timestamp}.jpg")
+            self.log(f"小地图已保存到 debug/test_minimap_{timestamp}.jpg")
         else:
-            self.log("Failed to capture minimap", "ERROR")
+            self.log("截图失败", "ERROR")
 
     def adjust_minimap(self):
         """调整小地图范围"""
@@ -1062,7 +1181,7 @@ class BotGUI:
         """小地图调整完成回调"""
         self.config = self._load_config()
         self._update_minimap_label()
-        self.log(f"Minimap region updated in {os.path.basename(self.config_file)}")
+        self.log(f"小地图范围已更新至 {os.path.basename(self.config_file)}")
 
     def save_settings(self):
         """保存设置"""
@@ -1070,10 +1189,28 @@ class BotGUI:
         self.config.set('Teleport', 'cooldown', self.cooldown_var.get())
         self.config.set('Detection', 'detection_interval', self.interval_var.get())
 
-        # 保存到实例专用的配置文件
         with open(self.config_file, 'w', encoding='utf-8') as f:
             self.config.write(f)
-        self.log(f"Settings saved to {os.path.basename(self.config_file)}")
+        self.log(f"设置已保存至 {os.path.basename(self.config_file)}")
+
+    def save_features_settings(self):
+        """保存功能开关设置"""
+        self.config.set('NpcTeleport', 'enabled', str(self.npc_enabled_var.get()))
+        self.config.set('NpcTeleport', 'find_npc_mode', self.npc_mode_var.get())
+        self.config.set('NpcTeleport', 'target_dungeon_row', self.npc_row_var.get())
+
+        self.config.set('MonsterHunt', 'enabled', str(self.hunt_enabled_var.get()))
+        self.config.set('MonsterHunt', 'attack_keys', self.hunt_keys_var.get())
+        self.config.set('MonsterHunt', 'attack_interval', self.hunt_interval_var.get())
+
+        self.config.set('ClassSkills', 'enabled', str(self.skill_enabled_var.get()))
+        self.config.set('ClassSkills', 'class_name', self.class_var.get())
+
+        self.config.set('AutoNav', 'enabled', str(self.nav_enabled_var.get()))
+
+        with open(self.config_file, 'w', encoding='utf-8') as f:
+            self.config.write(f)
+        self.log("功能设置已保存")
 
     def _update_stats_loop(self):
         """更新统计循环"""
@@ -1104,16 +1241,15 @@ class BotGUI:
                         os.remove(file_path)
                     except:
                         pass
-                self.log(f"Cleaned debug directory: {len(files)} files removed")
+                self.log(f"已清理debug目录: {len(files)} 个文件已删除")
         except Exception as e:
-            self.log(f"Failed to clean debug directory: {e}", "WARNING")
+            self.log(f"清理debug目录失败: {e}", "WARNING")
 
     def run(self):
         """运行界面"""
-        self.log("GUI initialized (Background Capture Mode)")
-        self.log("Press 'Start' to begin, F10 to stop")
-        self.log("Press F9 to show/hide this window")
-        self.log("Window can be occluded while running")
+        self.log("挂机界面已启动（后台截图模式）")
+        self.log("点击「开始」启动挂机，F10停止")
+        self.log("F9隐藏/显示窗口")
         self.root.mainloop()
 
     def on_closing(self):

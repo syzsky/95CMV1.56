@@ -22,6 +22,7 @@ import ctypes
 
 # NPC传送和怪物猎手
 from npc_teleporter import NpcTeleporter, MonsterHunter
+from bot_engine import SmartEngine, BotState
 
 # 获取脚本所在目录
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -514,92 +515,32 @@ class Mir2AutoBotV2:
             logger.warning(f"清理debug目录失败: {e}")
 
     def run(self):
-        """运行挂机脚本 - 支持NPC传送 + 自动找怪"""
-        logger.info("开始运行挂机脚本V2...")
-        logger.info("使用小地图黄点/红点检测（后台截图模式）")
+        """运行挂机脚本 - 智能状态机引擎"""
+        logger.info("=" * 45)
+        logger.info("95沉默智能挂机 v1.0 启动")
+        logger.info("=" * 45)
 
         if not self.find_game_window():
             logger.error("无法找到游戏窗口，退出")
             return
 
-        logger.info("提示: 脚本支持后台运行，窗口被遮挡也能正常工作")
+        logger.info(f"窗口: {self.window_title}")
 
         self.running = True
 
-        # 判断启动模式
-        npc_enabled = self.config.getboolean('NpcTeleport', 'enabled', fallback=False)
-        hunt_enabled = self.config.getboolean('MonsterHunt', 'enabled', fallback=False)
-        target = self.config.get('NpcTeleport', 'target_dungeon', fallback='')
+        # 创建引擎
+        self.engine = SmartEngine(self)
+        self.engine.change_state(BotState.IDLE)
 
-        if npc_enabled and target:
-            self.mode = 'teleport'
-            self.npc_teleporter.enabled = True
-            self.npc_teleporter.start_teleport(target, callback=self._on_teleport_done)
-            logger.info("模式: NPC传送 -> %s", target)
-        elif hunt_enabled:
-            self.mode = 'hunt'
-            self.monster_hunter.enabled = True
-            self.monster_hunter.start_hunting()
-            logger.info("模式: 自动打怪")
-        else:
-            self.mode = 'normal'
-            logger.info("模式: 黄点躲避（原模式）")
-
-        logger.info("挂机脚本V2已启动，按 F10 停止")
-        logger.info(f"小地图区域: {self.minimap_region}")
+        logger.info("按 F10 停止 | 状态: IDLE → 自动运行")
+        logger.info(f"小地图: {self.minimap_region}")
 
         try:
             while self.running:
-                # 检查窗口是否还存在
                 if not win32gui.IsWindow(self.hwnd):
                     logger.warning("游戏窗口已关闭")
                     break
-
-                # 后台捕获小地图
-                minimap = self.capture_minimap()
-
-                if minimap is not None:
-                    self.stats['detection_runs'] += 1
-
-                    # ====== 模式1: NPC传送中 ======
-                    if self.mode == 'teleport':
-                        # 一直在NPC传送器循环里
-                        status = self.npc_teleporter.update(coords=None)
-                        if status == 'arrived':
-                            # 传送完成后切到打怪模式
-                            if self.config.getboolean('MonsterHunt', 'enabled', fallback=False):
-                                self.mode = 'hunt'
-                                self.monster_hunter.start_hunting()
-                                logger.info("传送完成，切换到自动打怪模式")
-                            else:
-                                self.mode = 'normal'
-                        elif status == 'failed':
-                            logger.warning("传送失败，尝试重新传送")
-                            target = self.config.get('NpcTeleport', 'target_dungeon', fallback='')
-                            if target:
-                                self.npc_teleporter.start_teleport(target)
-
-                    # ====== 模式2: 自动打怪 ======
-                    elif self.mode == 'hunt':
-                        red_dots = self.minimap_detector.detect_red_dots(minimap)
-                        if red_dots:
-                            # 小地图中心就是玩家位置
-                            mm_w = self.minimap_region[2]
-                            mm_h = self.minimap_region[3]
-                            center_x = mm_w // 2
-                            center_y = mm_h // 2
-                            self.monster_hunter.hunt(red_dots, center_x, center_y)
-
-                    # ====== 模式3: 原黄点躲避 ======
-                    else:
-                        has_players, yellow_dots = self.detect_yellow_dots(minimap)
-                        if has_players:
-                            self.use_teleport()
-
-                self.update_stats()
-                detection_interval = self.config.getfloat('Detection', 'detection_interval', fallback=0.3)
-                time.sleep(detection_interval)
-
+                self.engine.update()
         except KeyboardInterrupt:
             logger.info("收到中断信号")
         except Exception as e:
@@ -607,29 +548,22 @@ class Mir2AutoBotV2:
         finally:
             self.stop()
 
-    def _on_teleport_done(self):
-        """传送完成后的回调"""
-        logger.info("NPC传送回调: 准备开始打怪")
-        if self.config.getboolean('MonsterHunt', 'enabled', fallback=False):
-            self.mode = 'hunt'
-            self.monster_hunter.start_hunting()
-
     def stop(self):
         """停止挂机脚本"""
         self.running = False
         self.npc_teleporter.stop_teleport()
         self.monster_hunter.stop_hunting()
-        logger.info("挂机脚本V2已停止")
+        logger.info("智能挂机已停止")
 
         if self.stats['start_time']:
             elapsed = (datetime.now() - self.stats['start_time']).total_seconds()
-            logger.info("=" * 50)
+            logger.info("=" * 45)
             logger.info("挂机统计:")
-            logger.info(f"运行时间: {int(elapsed // 60)} 分钟 {int(elapsed % 60)} 秒")
-            logger.info(f"检测次数: {self.stats['detection_runs']}")
-            logger.info(f"黄点检测: {self.stats['yellow_dots_detected']}")
-            logger.info(f"使用传送: {self.stats['teleports_used']}")
-            logger.info("=" * 50)
+            logger.info(f"运行: {int(elapsed // 60)}分钟 {int(elapsed % 60)}秒")
+            logger.info(f"检测: {self.stats['detection_runs']}次")
+            logger.info(f"黄点: {self.stats['yellow_dots_detected']}次")
+            logger.info(f"传送: {self.stats['teleports_used']}次")
+            logger.info("=" * 45)
 
 def main():
     """主函数"""

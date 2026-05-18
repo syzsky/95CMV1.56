@@ -124,8 +124,7 @@ class SmartEngine:
 
         if npc_enabled:
             logger.info("[引擎] 开始NPC传送流程")
-            target = self.bot.config.get('NpcTeleport', 'target_dungeon', fallback='石墓阵')
-            self.bot.npc_teleporter.start_teleport(target, callback=self._on_teleport_done)
+            self.bot.npc_teleporter.start_teleport(callback=self._on_teleport_done)
             self.change_state(BotState.TELEPORT)
         elif hunt_enabled:
             logger.info("[引擎] 直接开始打怪")
@@ -151,8 +150,7 @@ class SmartEngine:
             pass
         elif status == 'failed':
             logger.warning("[引擎] 传送失败，重新尝试")
-            target = self.bot.config.get('NpcTeleport', 'target_dungeon', fallback='石墓阵')
-            self.bot.npc_teleporter.start_teleport(target, self._on_teleport_done)
+            self.bot.npc_teleporter.start_teleport(self._on_teleport_done)
 
     def _handle_hunt(self, red_dots, yellow_dots, cx, cy, has_monsters, has_players):
         """

@@ -24,48 +24,12 @@ logger = logging.getLogger(__name__)
 # 脚本目录
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 传送员NPC坐标（95沉默安全区一般位置）
-# 你可以在游戏里看坐标后修改这里
-NPC_POSITIONS = {
-    '盟重省': {'x': 330, 'y': 330, 'name': '传送员'},
-    '比奇省': {'x': 280, 'y': 260, 'name': '传送员'},
-    '土城':   {'x': 330, 'y': 330, 'name': '传送员'},
-}
-
-# 预设传送目的地
-# 对话框里地图按钮的屏幕坐标（相对于游戏客户区左上角）
-# 需要你实际量一下按钮位置后修改
-PRESET_DESTINATIONS = {
-    '石墓阵': {
-        'click_x': 400,   # 对话框里"石墓"按钮的X坐标（相对客户区）
-        'click_y': 250,   # 对话框里"石墓"按钮的Y坐标
-        'wait_after': 3.0, # 传送后等待时间（秒）
-    },
-    '猪洞': {
-        'click_x': 400,
-        'click_y': 280,
-        'wait_after': 3.0,
-    },
-    '蜈蚣洞': {
-        'click_x': 400,
-        'click_y': 310,
-        'wait_after': 3.0,
-    },
-    '矿区': {
-        'click_x': 400,
-        'click_y': 340,
-        'wait_after': 3.0,
-    },
-    '沃玛寺庙': {
-        'click_x': 400,
-        'click_y': 370,
-        'wait_after': 3.0,
-    },
-    '祖玛寺庙': {
-        'click_x': 400,
-        'click_y': 400,
-        'wait_after': 3.0,
-    },
+# NPC对话框设置
+# 不同服的传送员菜单顺序不一样，改为按行号点击
+DIALOG_CONFIG = {
+    'first_row_y': 240,      # 第一行文字的Y坐标（相对客户区）
+    'click_x': 400,          # 点击的X坐标（每行都一样）
+    'row_height': 30,        # 每行高度（像素）
 }
 
 
@@ -79,6 +43,7 @@ class NpcTeleporter:
 
         # 传送参数
         self.npc_find_timeout = 30  # 找NPC超时（秒）
+        self.target_dungeon_row = 1  # 传送员对话框第几行
 
         # NPC找图模式: 'none' / 'image' / 'color' / 'auto'
         self.find_npc_mode = 'none'
@@ -262,28 +227,21 @@ class NpcTeleporter:
 
     # ====== 传送流程 ======
 
-    def start_teleport(self, target_map: str, callback=None):
+    def start_teleport(self, callback=None):
         """
         开始传送流程
-        target_map: 目的地名称（如 '石墓阵'）
         callback: 传送完成后的回调函数
         """
-        if target_map not in PRESET_DESTINATIONS:
-            logger.warning(f"未知目的地: {target_map}")
-            return False
-
-        self.target_map = target_map
         self.after_teleport_callback = callback
         self.teleporting = True
         self._npc_walk_start = time.time()
         self._dialog_opened = False
-        logger.info(f"开始传送流程 -> {target_map}")
+        logger.info(f"开始传送流程 -> 第{self.target_dungeon_row}行")
         return True
 
     def stop_teleport(self):
         """停止传送"""
         self.teleporting = False
-        self.target_map = None
         self._dialog_opened = False
         logger.info("停止传送流程")
 
@@ -295,7 +253,7 @@ class NpcTeleporter:
         if not self.enabled or not self.teleporting:
             return 'idle'
 
-        if not self.target_map:
+        if not self.target_dungeon_row or self.target_dungeon_row < 1:
             self.teleporting = False
             return 'idle'
 
@@ -357,23 +315,29 @@ class NpcTeleporter:
         self._dialog_opened = True
 
     def _click_destination(self):
-        """点击目的地按钮并确认传送"""
-        dest = PRESET_DESTINATIONS[self.target_map]
-        click_x = dest['click_x']
-        click_y = dest['click_y']
-        wait_time = dest['wait_after']
+        """点击对话框第N行（按行号点击）"""
+        row = self.target_dungeon_row
+        click_x = DIALOG_CONFIG['click_x']
+        click_y = DIALOG_CONFIG['first_row_y'] + (row - 1) * DIALOG_CONFIG['row_height']
+
+        # 保存对话框截图（调试用）
+        debug_img = self.capture_full_screen()
+        if debug_img is not None:
+            debug_path = os.path.join(SCRIPT_DIR, 'dialog_debug.png')
+            cv2.imwrite(debug_path, debug_img)
+            logger.info(f"已保存对话框截图: {debug_path}")
 
         # 后台鼠标点击
+        logger.info(f"点击对话框第{row}行 ({click_x}, {click_y})")
         self.mouse_click_background(click_x, click_y)
         time.sleep(0.5)
         # 按Enter确认
         self.send_key_enter()
         time.sleep(1.0)
-        logger.info(f"已点击地图按钮: {self.target_map}")
 
         # 等待传送
-        logger.info(f"等待传送... ({wait_time}秒)")
-        time.sleep(wait_time)
+        logger.info("等待传送... (3秒)")
+        time.sleep(3.0)
 
         self.teleporting = False
         self._dialog_opened = False

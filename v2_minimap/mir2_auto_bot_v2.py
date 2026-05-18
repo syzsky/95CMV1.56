@@ -128,6 +128,7 @@ class Mir2AutoBotV2:
         self.npc_teleporter = NpcTeleporter()
         self.npc_teleporter.enabled = self.config.getboolean('NpcTeleport', 'enabled', fallback=False)
         self.npc_teleporter.find_npc_mode = self.config.get('NpcTeleport', 'find_npc_mode', fallback='none')
+        self.npc_teleporter.target_dungeon_row = self.config.getint('NpcTeleport', 'target_dungeon_row', fallback=1)
 
         # 怪物猎手
         self.monster_hunter = MonsterHunter()

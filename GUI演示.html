@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>95沉默智能挂机 - GUI演示 + 任务流程</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Microsoft YaHei", "Segoe UI", sans-serif;
+    background: #0d0d0d;
+    color: #e0e0e0;
+    padding: 30px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .container { max-width: 1000px; margin: 0 auto; }
+
+  /* GUI窗口 */
+  .window {
+    background: #1a1a2e;
+    border-radius: 12px;
+    border: 1px solid #2a2a4a;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+    overflow: hidden;
+    margin-bottom: 30px;
+  }
+  .titlebar {
+    background: #16213e;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid #2a2a4a;
+  }
+  .titlebar .dots { display: flex; gap: 6px; }
+  .titlebar .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dot-red { background: #ff5f57; }
+  .dot-yellow { background: #ffbd2e; }
+  .dot-green { background: #28c840; }
+  .titlebar .title { flex: 1; text-align: center; font-size: 14px; color: #888; }
+  .content { display: flex; min-height: 500px; }
+
+  /* 侧边栏 */
+  .sidebar {
+    width: 200px;
+    background: #16213e;
+    border-right: 1px solid #2a2a4a;
+    padding: 12px 0;
+  }
+  .sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #999;
+    border-left: 3px solid transparent;
+  }
+  .sidebar-item.active { background: #1a1a3e; color: #fff; border-left-color: #4fc3f7; }
+  .sidebar-item .icon { font-size: 16px; width: 22px; text-align: center; }
+
+  /* 主面板 */
+  .main { flex: 1; padding: 16px 20px; background: #1a1a2e; }
+
+  .state-badge {
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .state-idle { background: #333; color: #999; }
+  .state-teleport { background: #0d47a1; color: #64b5f6; }
+  .state-hunt { background: #1b5e20; color: #81c784; }
+  .state-attack { background: #b71c1c; color: #ef9a9a; }
+  .state-flee { background: #e65100; color: #ffb74d; }
+  .state-patrol { background: #4a148c; color: #ce93d8; }
+
+  .info-card {
+    background: #12122a;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .info-card .label { font-size: 12px; color: #888; }
+  .info-card .value { font-size: 14px; color: #4fc3f7; font-weight: 600; }
+
+  /* 日志 */
+  .log-box {
+    background: #0a0a1a;
+    border-radius: 8px;
+    padding: 10px;
+    height: 140px;
+    overflow-y: auto;
+    font-family: "Consolas", monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    border: 1px solid #2a2a4a;
+  }
+  .log-line { color: #666; }
+  .log-line.sys { color: #b0bec5; }
+  .log-line.ok { color: #81c784; }
+  .log-line.action { color: #64b5f6; }
+  .log-line.warn { color: #ffb74d; }
+  .log-line.fatal { color: #ef9a9a; }
+
+  /* 流程图 */
+  .flow {
+    background: #12122a;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 30px;
+  }
+  .flow-title {
+    color: #4fc3f7;
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: flex;
+    alighments: center;
+    gap: 8px;
+  }
+  .flow-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .flow-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .flow-node {
+    background: #1a1a3e;
+    border: 1px solid #3a3a5a;
+    border-radius: 8px;
+    padding: 10px 14px;
+    text-align: center;
+    min-width: 120px;
+    flex-shrink: 0;
+  }
+  .flow-node .f-icon { font-size: 20px; }
+  .flow-node .f-name { font-size: 12px; color: #fff; font-weight: 600; margin-top: 2px; }
+  .flow-node .f-desc { font-size: 10px; color: #888; margin-top: 2px; }
+  .flow-node.active { border-color: #4fc3f7; background: #0d2137; }
+  .flow-node.hunt { border-color: #81c784; background: #1a2e1a; }
+  .flow-node.flee { border-color: #ffb74d; background: #2e1a0a; }
+  .flow-node.patrol { border-color: #ce93d8; background: #1a0a2e; }
+  .flow-arrow { color: #555; font-size: 18px; flex-shrink: 0; }
+
+  /* 使用步骤 */
+  .steps {
+    background: #12122a;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 30px;
+  }
+  .step {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    align-items: flex-start;
+  }
+  .step-num {
+    background: #0d47a1;
+    color: #64b5f6;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .step-content { flex: 1; }
+  .step-title { color: #e0e0e0; font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+  .step-desc { color: #888; font-size: 13px; line-height: 1.5; }
+
+  .config-box {
+    background: #0a0a1a;
+    border: 1px solid #2a2a4a;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-family: "Consolas", monospace;
+    font-size: 12px;
+    color: #81c784;
+    margin: 8px 0;
+    line-height: 1.7;
+  }
+
+  /* 页脚 */
+  .footer {
+    text-align: center;
+    color: #555;
+    font-size: 12px;
+    padding: 20px;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  .pulsing { animation: pulse 1.5s infinite; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- ====== GUI演示 ====== -->
+  <div class="window">
+    <div class="titlebar">
+      <div class="dots">
+        <div class="dot dot-red"></div>
+        <div class="dot dot-yellow"></div>
+        <div class="dot dot-green"></div>
+      </div>
+      <div class="title">95沉默 · 智能挂机 v1.0</div>
+    </div>
+    <div class="content">
+      <!-- 导航 -->
+      <div class="sidebar">
+        <div class="sidebar-item active"><span class="icon">📊</span> 总览</div>
+        <div class="sidebar-item"><span class="icon">🚪</span> 传送</div>
+        <div class="sidebar-item"><span class="icon">🎯</span> 打怪</div>
+        <div class="sidebar-item"><span class="icon">⚙️</span> 设置</div>
+      </div>
+
+      <!-- 主面板 -->
+      <div class="main">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <span style="font-size:16px; font-weight:600;">📊 智能状态</span>
+          <span class="state-badge state-hunt" style="font-size:13px;">▶ 打怪中</span>
+        </div>
+
+        <!-- 状态卡片 -->
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:12px;">
+          <div class="info-card" style="flex-direction:column; align-items:flex-start;">
+            <span class="label">🪟 窗口</span>
+            <span class="value" style="color:#81c784;">✅ 九五沉默已连接</span>
+          </div>
+          <div class="info-card" style="flex-direction:column; align-items:flex-start;">
+            <span class="label">🗺️ 小地图</span>
+            <span class="value">150×150 px</span>
+          </div>
+          <div class="info-card" style="flex-direction:column; align-items:flex-start;">
+            <span class="label">⏱️ 运行</span>
+            <span class="value">15分22秒</span>
+          </div>
+        </div>
+
+        <!-- 当前模式 -->
+        <div style="display:flex; gap:8px; margin-bottom:12px;">
+          <div class="info-card" style="flex:1; flex-direction:column; align-items:flex-start;">
+            <span class="label">🚪 NPC传送</span>
+            <span class="value" style="font-size:12px;">石墓阵 · 颜色检测</span>
+          </div>
+          <div class="info-card" style="flex:1; flex-direction:column; align-items:flex-start;">
+            <span class="label">🎯 技能循环</span>
+            <span class="value" style="font-size:12px;">F1 → F2 → F3</span>
+          </div>
+          <div class="info-card" style="flex:1; flex-direction:column; align-items:flex-start;">
+            <span class="label">🟡 玩家检测</span>
+            <span class="value" style="font-size:12px;">遇则飞</span>
+          </div>
+        </div>
+
+        <!-- 统计 -->
+        <div style="display:flex; gap:16px; margin-bottom:12px; font-size:12px; color:#999;">
+          <span>🔴 击杀 <b style="color:#fff;">47</b></span>
+          <span>🟡 遇敌 <b style="color:#fff;">12</b></span>
+          <span>📡 传送 <b style="color:#fff;">8</b></span>
+          <span>🚶 巡逻 <b style="color:#fff;">23</b></span>
+        </div>
+
+        <!-- 日志 -->
+        <div class="log-box">
+          <div class="log-line sys">[10:32:01] ✅ 找到窗口: 九五沉默</div>
+          <div class="log-line ok">[10:32:02] [引擎] IDLE → TELEPORT</div>
+          <div class="log-line action">[10:32:05] 🔍 颜色检测找到NPC！坐标(420, 350)</div>
+          <div class="log-line action">[10:32:06] 按Enter打开NPC对话框...</div>
+          <div class="log-line action">[10:32:08] 已点击地图按钮: 石墓阵</div>
+          <div class="log-line ok">[10:32:12] [引擎] 传送完成! TELEPORT → PATROL</div>
+          <div class="log-line action">[10:32:15] 🔴 检测到 3 个红点！（怪物）</div>
+          <div class="log-line ok">[10:32:15] [引擎] PATROL → HUNT</div>
+          <div class="log-line action">[10:32:18] 攻击 [F1] (技能1/3)</div>
+          <div class="log-line action">[10:32:19] 攻击 [F2] (技能2/3)</div>
+          <div class="log-line action">[10:32:19] 攻击 [F3] (技能3/3)</div>
+          <div class="log-line warn">[10:32:25] 🟡 检测到黄点！（玩家）</div>
+          <div class="log-line warn">[10:32:25] [引擎] HUNT → FLEE</div>
+          <div class="log-line action">[10:32:25] 已使用随机传送石（键2）</div>
+          <div class="log-line ok">[10:32:30] [引擎] FLEE_BACK → PATROL</div>
+          <div class="log-line action">[10:32:33] 🔴 检测到 5 个红点！（怪物）</div>
+          <div class="log-line ok">[10:32:33] [引擎] PATROL → HUNT</div>
+          <div class="log-line action pulsing" style="color:#4fc3f7;">▍运行中...</div>
+        </div>
+
+        <!-- 按钮 -->
+        <div style="display:flex; gap:8px; margin-top:10px;">
+          <button style="flex:1; padding:8px; border:none; border-radius:6px; background:#c62828; color:#fff; font-weight:600; cursor:pointer;">■ 停止</button>
+          <button style="flex:1; padding:8px; border:none; border-radius:6px; background:#2e7d32; color:#fff; font-weight:600; opacity:0.5;">▶ 启动</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== 状态机流程 ====== -->
+  <div class="flow">
+    <div class="flow-title">🧠 智能状态机 - 全自动流程</div>
+    <div class="flow-grid">
+
+      <!-- 行1: 开始 -->
+      <div class="flow-row">
+        <div class="flow-node" style="background:#1b5e20;">
+          <div class="f-icon">🚀</div>
+          <div class="f-name">启动</div>
+          <div class="f-desc">双击exe启动</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node active">
+          <div class="f-icon">🔍</div>
+          <div class="f-name">找窗口/找NPC</div>
+          <div class="f-desc">自动匹配 / 颜色检测</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node active">
+          <div class="f-icon">✈️</div>
+          <div class="f-name">NPC传送</div>
+          <div class="f-desc">对话→点地图→飞</div>
+        </div>
+      </div>
+
+      <!-- 行2: 循环 -->
+      <div style="text-align:center; color:#555; font-size:20px; padding:4px 0;">↙ ↻ 自动循环 ↻ ↘</div>
+
+      <div class="flow-row" style="justify-content:center; flex-wrap:wrap; gap:8px;">
+        <div class="flow-node hunt">
+          <div class="f-icon">🔴</div>
+          <div class="f-name">HUNT 打怪</div>
+          <div class="f-desc">找红点→走过去</div>
+        </div>
+        <div class="flow-arrow" style="f">→</div>
+        <div class="flow-node hunt" style="border-color:#ef5350;">
+          <div class="f-icon">⚔️</div>
+          <div class="f-name">ATTACK 攻击</div>
+          <div class="f-desc">F1→F2→F3循环</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node" style="border-color:#ce93d8;">
+          <div class="f-icon">🚶</div>
+          <div class="f-name">PATROL 巡逻</div>
+          <div class="f-desc">没怪了四处走</div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-node flee">
+          <div class="f-icon">🏃</div>
+          <div class="f-name">FLEE 逃跑</div>
+          <div class="f-desc">遇玩家→传送飞</div>
+        </div>
+        </div>
+      </div>
+
+      <div style="text-align:center; color:#555; font-size:12px; margin-top:8px;">
+        <span style="color:#81c784;">⬆ 打怪</span> · 
+        <span style="color:#ce93d8;">⬆ 找怪</span> · 
+        <span style="color:#ffb74d;">⬆ 逃跑</span> · 
+        <span style="#555;">⬆ 全部自动切换，不需要你管</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== 使用步骤 ====== -->
+  <div class="steps">
+    <div style="color:#4fc3f7; font-size:18px; font-weight:600; margin-bottom:16px;">📋 使用步骤</div>
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <div class="step-title">下载exe</div>
+        <div class="step-desc">打开 <b>https://github.com/syzsky/95CMV1.56/releases/tag/v1.0</b><br>下载 <b>95CM-AutoBot-CLI.exe</b>（61MB）</div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        class="step-title">打开游戏，站安全区</div>
+        <div class="step-desc">开好95沉默传奇，人物站在土城安全区（传送员旁边）</div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <div class="step-title">双击exe</div>
+        <div class="step-desc">自动找游戏窗口 → 自动找NPC传送员（颜色检测）<br>→ 按Enter对话 → 点击"石墓阵" → 飞过去</div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <div class="step-title">全自动挂机</div>
+        <div class="step-desc">脚本自动循环：<span style="color:#81c784;">打怪</span> → <span style="color:#ce93d8;">找怪</span> → <span style="color:#ffb74d;">遇人逃跑</span> → 继续打</div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <div class="step-title">按 F10 停止</div>
+        <div class="step-desc">随时按键盘 F10 停止挂机</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== 配置参考 ====== -->
+  <div class="steps">
+    <div style="color:#4fc3f7; font-size:18px; font-weight:600; margin-bottom:16px;">⚙️ 配置文件 (bot_config_v2.ini)</div>
+
+    <div class="config-box">
+[NpcTeleport]<br>
+enabled = true<br>
+find_npc_mode = color&nbsp;&nbsp;&nbsp;# none/color/image/auto<br>
+target_dungeon = 石墓阵&nbsp;&nbsp;# 要去的地图<br><br>
+
+[MonsterHunt]<br>
+enabled = true<br>
+attack_keys = F1,F2,F3&nbsp;&nbsp;# 技能键循环<br>
+attack_interval = 0.5&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# 每键间隔<br><br>
+
+[Teleport]<br>
+enabled = true<br>
+teleport_key = 2&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# 遇玩家逃跑键
+    </div>
+  </div>
+
+  <div class="footer">
+    95沉默 · 智能挂机 v1.0 | 每次推代码自动构建，下载最新版即可
+  </div>
+
+</div>
+</body>
+</html>

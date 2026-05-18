@@ -2,8 +2,8 @@ name: Build and Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -60,15 +60,40 @@ jobs:
             v2_minimap/dist/95CM-AutoBot-CLI.exe
             v2_minimap/dist/95CM-AutoBot-GUI.exe
       
-      - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: 删除旧Release（v1.0）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete v1.0 --yes --repo ${{ github.repository }} 2>$null || echo "没有旧Release，直接创建"
+      
+      - name: 创建 Release v1.0（覆盖更新）
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v1.0
+          target_commitish: ${{ github.sha }}
+          name: v1.0 - 95沉默自动挂机（最新版）
+          body: |
+            ## 95沉默自动挂机脚本 v1.0
+            
+            ### 功能
+            - 🚪 NPC传送员自动下图
+            - 🎯 小地图红点检测+自动找怪打怪
+            - ⚔️ 多技能循环攻击（F1,F2,F3...）
+            - 💊 职业自动技能（喝药/召唤/加Buff）
+            - 🟡 黄点躲避（检测到其他玩家自动飞）
+            - 🪟 窗口选择：找不到匹配窗口时列出所有窗口让你选
+            
+            ### 下载说明
+            下载后双击运行即可。会自动在exe目录生成 bot_config_v2.ini 配置文件。
+            
+            ### 配置（记事本打开bot_config_v2.ini）
+            - NPC坐标：`npc_x / npc_y`
+            - 攻击键：`attack_keys = F1,F2,F3`
+            - 目标地图：`target_dungeon = 石墓阵`
           files: |
             v2_minimap/dist/95CM-AutoBot-CLI.exe
             v2_minimap/dist/95CM-AutoBot-GUI.exe
           draft: false
           prerelease: false
-          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

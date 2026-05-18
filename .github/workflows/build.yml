@@ -61,10 +61,12 @@ jobs:
             v2_minimap/dist/95CM-AutoBot-GUI.exe
       
       - name: 删除旧Release（v1.0）
+        continue-on-error: true
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
         run: |
-          gh release delete v1.0 --yes --repo ${{ github.repository }} 2>$null || echo "没有旧Release，直接创建"
+          gh release delete v1.0 --repo ${{ github.repository }} --yes 2>&1
       
       - name: 创建 Release v1.0（覆盖更新）
         uses: softprops/action-gh-release@v2

@@ -29,22 +29,24 @@ jobs:
           pip install pyinstaller
           pip install -r requirements.txt
       
-      - name: 检查代码语法
+      - name: Check code syntax
         shell: bash
         run: |
-          echo "=== 语法检查 ==="
+          echo "=== syntax check ==="
           for f in *.py; do
-            echo "检查: $f"
+            echo "check: $f"
             python -m py_compile "$f"
           done
-          echo "✅ 所有文件语法正确"
+          echo "[OK] all files syntax OK"
       
-      - name: 验证功能（关键方法 + 配置加载）
+      - name: Verify functionality
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
-          echo "=== 功能验证 ==="
+          echo "=== verify ==="
           python verify_build.py
       
-      - name: Build CLI version (mir2_auto_bot_v2.py)
+      - name: Build CLI version
         run: |
           pyinstaller --onefile --clean --noconfirm `
             --name "95CM-AutoBot-CLI" --console `
@@ -55,7 +57,7 @@ jobs:
             --add-data "bot_config_v2.ini;." `
             mir2_auto_bot_v2.py
       
-      - name: Build GUI version (mir2_bot_gui_v2.py)
+      - name: Build GUI version
         run: |
           pyinstaller --onefile --clean --noconfirm --name "95CM-AutoBot-GUI" --windowed `
             --hidden-import win32gui --hidden-import win32con --hidden-import win32api `
@@ -76,7 +78,7 @@ jobs:
             v2_minimap/dist/95CM-AutoBot-CLI.exe
             v2_minimap/dist/95CM-AutoBot-GUI.exe
       
-      - name: 删除旧Release（v1.0）
+      - name: Delete old release
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -84,30 +86,25 @@ jobs:
         run: |
           gh release delete v1.0 --repo ${{ github.repository }} --yes 2>&1
       
-      - name: 创建 Release v1.0（覆盖更新）
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0
           target_commitish: ${{ github.sha }}
-          name: v1.0 - 95沉默自动挂机（最新版）
+          name: v1.0 - 95CM AutoBot (latest)
           body: |
-            ## 95沉默自动挂机脚本 v1.0
+            ## 95CM AutoBot v1.0
             
-            ### 功能
-            - 🚪 NPC传送员自动下图
-            - 🎯 小地图红点检测+自动找怪打怪
-            - ⚔️ 多技能循环攻击（F1,F2,F3...）
-            - 💊 职业自动技能（喝药/召唤/加Buff）
-            - 🟡 黄点躲避（检测到其他玩家自动飞）
-            - 🪟 窗口选择：找不到匹配窗口时列出所有窗口让你选
+            ### Features
+            - NPC teleporter auto-dungeon
+            - Minimap red dot detection + auto combat
+            - Multi-skill attack (F1,F2,F3...)
+            - Auto class skills (potions/summon/buff)
+            - Yellow dot avoidance (auto teleport when players detected)
+            - Window selection with list fallback
             
-            ### 下载说明
-            下载后双击运行即可。会自动在exe目录生成 bot_config_v2.ini 配置文件。
-            
-            ### 配置（记事本打开bot_config_v2.ini）
-            - NPC坐标：`npc_x / npc_y`
-            - 攻击键：`attack_keys = F1,F2,F3`
-            - 目标地图：`target_dungeon = 石墓阵`
+            ### Usage
+            Download and run. Config file auto-created at exe path.
           files: |
             v2_minimap/dist/95CM-AutoBot-CLI.exe
             v2_minimap/dist/95CM-AutoBot-GUI.exe

@@ -2,18 +2,27 @@
 """
 传送员NPC自动传送模块
 通过传送员NPC直接飞到目标地图，进图后自动找怪打怪
+支持找怪打怪
+支持找图识别NPC位置
 """
 
 import time
 import logging
+import os
 import win32gui
 import win32con
 import win32
 import win32api
 import win32con
+import win32ui
+import numpy as np
+import cv2
 from typing import Optional, List, Tuple
 
 logger = logging.getLogger(__name__)
+
+# 脚本目录
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 传送员NPC坐标（95沉默安全区一般位置）
 # 你可以在游戏里看坐标后修改这里
@@ -69,24 +78,126 @@ class NpcTeleporter:
         self.client_rect = None
 
         # 传送参数
-        self.npc_x = 330       # NPC坐标X
-        self.npc_y = 330       # NPC坐标Y
-        self.npc_walk_range = 3  # 走到NPC旁边时的判定范围
         self.npc_find_timeout = 30  # 找NPC超时（秒）
 
+        # NPC找图模式: 'none' / 'image' / 'color' / 'auto'
+        self.find_npc_mode = 'none'
+
         # 状态
-        self.teleporting = False      # 正在传送中
+        self.teleporting = False
         self._npc_walk_start = 0
         self._dialog_opened = False
+        self._npc_found = False
 
         # 当前目的地
         self.target_map = None
-        self.after_teleport_callback = None  # 传送完后回调
+        self.after_teleport_callback = None
 
     def set_hwnd(self, hwnd: int):
         self.hwnd = hwnd
         if hwnd:
             self.client_rect = win32gui.GetClientRect(hwnd)
+
+    def capture_full_screen(self) -> Optional[np.ndarray]:
+        """后台截取游戏窗口全屏（BGR格式）"""
+        if not self.hwnd or not self.client_rect:
+            return None
+        try:
+            cw = self.client_rect[2] - self.client_rect[0]
+            ch = self.client_rect[3] - self.client_rect[1]
+            hwndDC = win32gui.GetWindowDC(self.hwnd)
+            mfcDC = win32ui.CreateDCFromHandle(hwndDC)
+            saveDC = mfcDC.CreateCompatibleDC()
+            saveBitMap = win32ui.CreateBitmap()
+            saveBitMap.CreateCompatibleBitmap(mfcDC, cw, ch)
+            saveDC.SelectObject(saveBitMap)
+            saveDC.BitBlt((0, 0), (cw, ch), mfcDC, (0, 0), win32con.SRCCOPY)
+            bmpinfo = saveBitMap.GetInfo()
+            bmpstr = saveBitMap.GetBitmapBits(True)
+            img = np.frombuffer(bmpstr, dtype='uint8')
+            img.shape = (bmpinfo['bmHeight'], bmpinfo['bmWidth'], 4)
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+            win32gui.DeleteObject(saveBitMap.GetHandle())
+            saveDC.DeleteDC()
+            mfcDC.DeleteDC()
+            win32gui.ReleaseDC(self.hwnd, hwndDC)
+            return img
+        except Exception as e:
+            logger.debug(f"截图失败: {e}")
+            return None
+
+    def find_npc_by_image(self, template_name: str = "npc_template.png") -> Optional[Tuple[int, int]]:
+        """
+        在游戏画面中找NPC模板图片（OpenCV模板匹配）
+        template_name: NPC模板图片文件名（放在脚本同目录）
+        返回: 找到的NPC客户区坐标 (client_x, client_y)，没找到返回None
+        """
+        screen = self.capture_full_screen()
+        if screen is None:
+            return None
+
+        template_path = os.path.join(SCRIPT_DIR, template_name)
+        if not os.path.exists(template_path):
+            logger.warning(f"NPC模板图片不存在: {template_path}")
+            return None
+
+        template = cv2.imread(template_path)
+        if template is None:
+            logger.warning(f"无法读取模板图片: {template_path}")
+            return None
+
+        h, w = template.shape[:2]
+        result = cv2.matchTemplate(screen, template, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(result)
+
+        if max_val < 0.7:  # 匹配度阈值
+            logger.info(f"未找到NPC，最高匹配度: {max_val:.2f}（需>=0.7）")
+            return None
+
+        # 返回模板中心位置
+        cx = max_loc[0] + w // 2
+        cy = max_loc[1] + h // 2
+        logger.info(f"找到NPC！坐标({cx},{cy}) 匹配度={max_val:.2f}")
+        return (cx, cy)
+
+    def find_npc_by_color(self) -> Optional[Tuple[int, int]]:
+        """
+        用颜色检测找NPC头顶黄色名字（不依赖模板图片）
+        传奇2 NPC名字通常是亮黄色（RGB 255,255,0附近）
+        返回: 找到的NPC客户区坐标，没找到返回None
+        """
+        screen = self.capture_full_screen()
+        if screen is None:
+            return None
+
+        # 转换为HSV，黄色在HSV空间中更容易分割
+        hsv = cv2.cvtColor(screen, cv2.COLOR_BGR2HSV)
+        # 黄色范围
+        lower = np.array([20, 100, 100])
+        upper = np.array([30, 255, 255])
+        mask = cv2.inRange(hsv, lower, upper)
+
+        # 找轮廓过滤噪声
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        valid = []
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if 20 < area < 500:  # NPC名字大小范围
+                x, y, w, h = cv2.boundingRect(cnt)
+                # 名字通常是横条（宽>高）
+                if w > h and w < 200:
+                    cx = x + w // 2
+                    cy = y + h // 2
+                    valid.append((cx, cy, area))
+
+        if not valid:
+            logger.info("未找到NPC（颜色检测）")
+            return None
+
+        # 返回面积最大的黄色区域（通常是最显眼的NPC名字）
+        best = max(valid, key=lambda v: v[2])
+        logger.info(f"颜色检测找到NPC！坐标({best[0]},{best[1]})")
+        return (best[0], best[1])
 
     def send_key(self, key_char: str, duration: float = 0.1):
         """后台按键"""
@@ -176,10 +287,10 @@ class NpcTeleporter:
         self._dialog_opened = False
         logger.info("停止传送流程")
 
-    def update(self, coords: Optional[Tuple[int, int]] = None) -> str:
+    def update(self, coords=None) -> str:
         """
         每帧调用，驱动传送流程
-        返回状态: 'idle' / 'walking' / 'opening_dialog' / 'clicking_map' / 'arrived' / 'failed'
+        返回状态: 'idle' / 'finding_npc' / 'opening_dialog' / 'arrived' / 'failed'
         """
         if not self.enabled or not self.teleporting:
             return 'idle'
@@ -194,71 +305,82 @@ class NpcTeleporter:
             self.stop_teleport()
             return 'failed'
 
-        # 阶段1: 走向NPC
-        if not self._dialog_opened:
-            if coords:
-                # 计算到NPC的距离
-                dx = self.npc_x - coords[0]
-                dy = self.npc_y - coords[1]
-                dist = abs(dx) + abs(dy)
-
-                if dist <= self.npc_walk_range:
-                    # 到NPC旁边了，按Enter对话
-                    logger.info("已到达NPC位置，打开对话框")
-                    self.send_key_enter()
-                    time.sleep(0.5)
-                    # 有些私服需要按Space
-                    self.send_key('Space', 0.1)
-                    time.sleep(0.5)
-                    # 再按一次Enter确定
-                    self.send_key_enter()
-                    time.sleep(1.0)
-                    self._dialog_opened = True
-                    return 'opening_dialog'
-                else:
-                    # 朝NPC走
-                    self._walk_toward(dx, dy)
-                    return 'walking'
+        # 阶段0: 找NPC（如果需要）
+        if not self._npc_found and self.find_npc_mode != 'none':
+            npc_pos = self._find_npc()
+            if npc_pos:
+                # 点击NPC位置
+                cx, cy = npc_pos
+                logger.info(f"点击NPC位置 ({cx}, {cy})")
+                self.mouse_click_background(cx, cy)
+                time.sleep(0.5)
+                self._npc_found = True
+                return 'finding_npc'
             else:
-                # 没有坐标信息，先按Space试试
-                self.send_key_enter()
-                time.sleep(1.0)
-                self._dialog_opened = True
-                return 'opening_dialog'
+                # 没找到NPC，等待后重试
+                logger.info("未找到NPC，等待1秒重试...")
+                time.sleep(1)
+                return 'finding_npc'
 
-        # 阶段2: 对话框已打开，点击地图按钮
-        if self._dialog_opened:
-            dest = PRESET_DESTINATIONS[self.target_map]
-            click_x = dest['click_x']
-            click_y = dest['click_y']
+        # 阶段1: 按Enter打开对话框
+        if not self._dialog_opened:
+            self._open_npc_dialog()
+            return 'opening_dialog'
 
-            # 先尝试后台点击
-            self.mouse_click_background(click_x, click_y)
-            time.sleep(0.5)
+        # 阶段2: 点击目的地按钮
+        self._click_destination()
+        return 'arrived'
 
-            # 再按Enter确认（有些服点完需要确认）
-            self.send_key_enter()
-            time.sleep(1.0)
+    def _find_npc(self) -> Optional[Tuple[int, int]]:
+        """找NPC位置，根据self.find_npc_mode选择方式"""
+        if self.find_npc_mode == 'image' or self.find_npc_mode == 'auto':
+            pos = self.find_npc_by_image()
+            if pos:
+                return pos
 
-            logger.info(f"已点击地图按钮: {self.target_map}")
+        if self.find_npc_mode == 'color' or self.find_npc_mode == 'auto':
+            pos = self.find_npc_by_color()
+            if pos:
+                return pos
 
-            # 等待传送
-            wait_time = dest['wait_after']
-            logger.info(f"等待传送... ({wait_time}秒)")
-            time.sleep(wait_time)
+        return None
 
-            # 完成传送
-            self.teleporting = False
-            self._dialog_opened = False
-            logger.info(f"传送完成 -> {self.target_map}")
+    def _open_npc_dialog(self):
+        """打开NPC对话框 - 不需要坐标，直接按Enter"""
+        logger.info("按Enter打开NPC对话框...")
+        self.send_key_enter()
+        time.sleep(0.3)
+        self.send_key('Space', 0.1)
+        time.sleep(0.3)
+        self.send_key_enter()
+        time.sleep(1.0)
+        self._dialog_opened = True
 
-            # 调用回调
-            if self.after_teleport_callback:
-                self.after_teleport_callback()
+    def _click_destination(self):
+        """点击目的地按钮并确认传送"""
+        dest = PRESET_DESTINATIONS[self.target_map]
+        click_x = dest['click_x']
+        click_y = dest['click_y']
+        wait_time = dest['wait_after']
 
-            return 'arrived'
+        # 后台鼠标点击
+        self.mouse_click_background(click_x, click_y)
+        time.sleep(0.5)
+        # 按Enter确认
+        self.send_key_enter()
+        time.sleep(1.0)
+        logger.info(f"已点击地图按钮: {self.target_map}")
 
-        return 'idle'
+        # 等待传送
+        logger.info(f"等待传送... ({wait_time}秒)")
+        time.sleep(wait_time)
+
+        self.teleporting = False
+        self._dialog_opened = False
+        logger.info(f"传送完成 -> {self.target_map}")
+
+        if self.after_teleport_callback:
+            self.after_teleport_callback()
 
     def _walk_toward(self, dx: int, dy: int):
         """朝目标方向走一步"""

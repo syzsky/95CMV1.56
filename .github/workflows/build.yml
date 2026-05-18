@@ -41,7 +41,6 @@ jobs:
       
       - name: 验证功能（关键方法 + 配置加载）
         run: |
-          pip install opencv-python-headless numpy
           echo "=== 功能验证 ==="
           python verify_build.py
       

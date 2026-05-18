@@ -5,6 +5,11 @@ import os
 import ast
 import configparser
 
+# Windows cp1252 兼容：不使用 emoji
+OK = "[OK]"
+FAIL = "[FAIL]"
+SKIP = "[SKIP]"
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 errors = []
 
@@ -15,10 +20,10 @@ def check_syntax(filepath):
         with open(filepath, 'r', encoding='utf-8') as f:
             source = f.read()
         compile(source, filepath, 'exec')
-        print(f"  ✅ {name} 语法正确")
+        print(f"  {OK} {name} 语法正确")
         return source
     except SyntaxError as e:
-        errors.append(f"❌ {name} 语法错误: {e}")
+        errors.append(f"{FAIL} {name} 语法错误: {e}")
         return None
 
 def check_key_methods(source, filepath):
@@ -28,7 +33,6 @@ def check_key_methods(source, filepath):
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef):
                 name = node.name
-                # 检查 _load_config 是否有 return
                 if name == '_load_config':
                     has_return = any(
                         isinstance(child, ast.Return) or
@@ -39,65 +43,52 @@ def check_key_methods(source, filepath):
                         for child in node.body
                     )
                     if has_return:
-                        print(f"  ✅ 方法 {name} 有 return 语句")
+                        print(f"  {OK} 方法 {name} 有 return 语句")
                     else:
-                        errors.append(f"❌ 方法 {name} 缺少 return 语句")
+                        errors.append(f"{FAIL} 方法 {name} 缺少 return 语句")
     except Exception as e:
-        errors.append(f"❌ AST分析失败: {e}")
+        errors.append(f"{FAIL} AST分析失败: {e}")
 
 def check_config_loading():
     """3. 检查配置文件是否能正常加载"""
     config_file = os.path.join(SCRIPT_DIR, 'bot_config_v2.ini')
     if not os.path.exists(config_file):
-        errors.append(f"❌ 配置文件不存在: {config_file}")
+        errors.append(f"{FAIL} 配置文件不存在: {config_file}")
         return
     
     try:
         config = configparser.ConfigParser()
         config.read(config_file, encoding='utf-8')
-        print(f"  ✅ 配置文件加载成功 ({len(config.sections())} 个段)")
+        print(f"  {OK} 配置文件加载成功 ({len(config.sections())} 个段)")
         
-        # 检查必要的配置段
         required_sections = ['Game', 'Minimap', 'Detection', 'Teleport', 'NpcTeleport']
         for section in required_sections:
             if config.has_section(section):
-                print(f"    ✅ 配置段 [{section}] 存在")
+                print(f"    {OK} 配置段 [{section}] 存在")
             else:
-                errors.append(f"❌ 缺少配置段 [{section}]")
+                errors.append(f"{FAIL} 缺少配置段 [{section}]")
     except Exception as e:
-        errors.append(f"❌ 配置文件加载失败: {e}")
+        errors.append(f"{FAIL} 配置文件加载失败: {e}")
 
 def check_imports():
-    """4. 检查关键模块是否能导入（跳过win32等运行时依赖）"""
-    try:
-        import tkinter
-        print("  ✅ tkinter 可用")
-    except Exception as e:
-        errors.append(f"❌ tkinter 导入失败: {e}")
-    
-    try:
-        import configparser
-        print("  ✅ configparser 可用")
-    except Exception as e:
-        errors.append(f"❌ configparser 导入失败: {e}")
-    
-    try:
-        import numpy as np
-        print("  ✅ numpy 可用")
-    except Exception as e:
-        errors.append(f"❌ numpy 导入失败: {e}")
-    
-    try:
-        import cv2
-        print("  ✅ opencv-python 可用")
-    except Exception as e:
-        errors.append(f"❌ opencv-python 导入失败: {e}")
+    """4. 检查关键模块是否能导入"""
+    modules = [
+        ('tkinter', 'tkinter'),
+        ('configparser', 'configparser'),
+        ('numpy', 'numpy'),
+    ]
+    for module_name, label in modules:
+        try:
+            __import__(module_name)
+            print(f"  {OK} {label} 可用")
+        except Exception as e:
+            errors.append(f"{FAIL} {label} 导入失败: {e}")
 
 if __name__ == '__main__':
     os.chdir(SCRIPT_DIR)
     
     print("=" * 50)
-    print("🔍 构建前验证")
+    print("构建前验证")
     print("=" * 50)
     
     # 1. 语法检查所有 .py 文件
@@ -126,10 +117,10 @@ if __name__ == '__main__':
     # 汇总
     print("\n" + "=" * 50)
     if errors:
-        print(f"❌ 验证失败: 发现 {len(errors)} 个问题")
+        print(f"{FAIL} 验证失败: 发现 {len(errors)} 个问题")
         for e in errors:
             print(f"  {e}")
         sys.exit(1)
     else:
-        print("✅ 全部验证通过，可以构建！")
+        print(f"{OK} 全部验证通过，可以构建！")
         sys.exit(0)

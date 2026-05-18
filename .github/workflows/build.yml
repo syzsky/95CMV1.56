@@ -36,7 +36,7 @@ jobs:
             --hidden-import win32gui --hidden-import win32con --hidden-import win32api `
             --hidden-import win32ui --hidden-import keyboard --hidden-import cv2 `
             --hidden-import numpy --hidden-import npc_teleporter --hidden-import class_skills `
-            --hidden-import auto_nav --hidden-import map_detector --hidden-import status_monitor `
+            --hidden-import bot_engine --hidden-import auto_nav --hidden-import map_detector --hidden-import status_monitor `
             --add-data "bot_config_v2.ini;." `
             mir2_auto_bot_v2.py
       
@@ -49,6 +49,7 @@ jobs:
             --hidden-import PIL.ImageTk --hidden-import customtkinter `
             --hidden-import map_detector --hidden-import status_monitor `
             --hidden-import class_skills --hidden-import auto_nav `
+            --hidden-import npc_teleporter --hidden-import bot_engine `
             --add-data "bot_config_v2.ini;." `
             mir2_bot_gui_v2.py
       

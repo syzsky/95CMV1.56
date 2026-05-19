@@ -71,23 +71,12 @@ jobs:
             mir2_bot_gui_v2.py
       
       - name: Build PyAibote version
-        shell: pwsh
         run: |
           pip install PyAibote
-          # 尝试下载WindowsDriver.exe（如果下载失败，用户需要手动提供）
-          $driverUrl = "https://github.com/syzsky/PyAibote/releases/download/v1.0/WindowsDriver.exe"
-          try {
-            Invoke-WebRequest -Uri $driverUrl -OutFile "WindowsDriver.exe" -ErrorAction Stop
-            Write-Host "✅ WindowsDriver.exe 下载成功"
-          } catch {
-            Write-Host "⚠️ WindowsDriver.exe 下载失败，创建占位文件"
-            Set-Content -Path "WindowsDriver.exe" -Value "placeholder" -Encoding Byte
-          }
           pyinstaller --onefile --clean --noconfirm --name "95CM-AutoBot-PyAibote" --console `
             --hidden-import PyAibote --hidden-import PyAibote.WindowsBot `
             --hidden-import PyAibote.WindowsBotModel `
             --hidden-import PyAibote.Tool --hidden-import PyAibote.CommonUse `
-            --add-data "WindowsDriver.exe;." `
             mir2_bot_pyaibote.py
       
       - name: Upload artifacts

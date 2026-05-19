@@ -18,8 +18,6 @@
 """
 import time
 import os
-import sys
-import subprocess
 from datetime import datetime
 from PyAibote import WinBotMain
 
@@ -226,45 +224,12 @@ class Mir2Bot(WinBotMain):
 
 
 # ==================== 启动 ====================
-def _get_driver_path():
-    """获取WindowsDriver.exe路径（打包后从临时目录提取）"""
-    if getattr(sys, 'frozen', False):
-        # PyInstaller打包：文件在临时目录
-        return os.path.join(sys._MEIPASS, "WindowsDriver.exe")
-    else:
-        # 直接运行Python脚本：在同目录找
-        return os.path.join(SCRIPT_DIR, "WindowsDriver.exe")
-
-
-def _start_driver(driver_path, ip, port):
-    """启动WindowsDriver.exe"""
-    if not os.path.exists(driver_path):
-        print(f"❌ 找不到WindowsDriver.exe: {driver_path}")
-        print("   请从 www.pyaibote.com 下载后放到脚本同目录")
-        return False
-    try:
-        subprocess.Popen([driver_path, ip, str(port)])
-        print(f"✅ WindowsDriver已启动: {driver_path}")
-        time.sleep(1)
-        return True
-    except Exception as e:
-        print(f"❌ 启动WindowsDriver失败: {e}")
-        return False
-
-
 if __name__ == "__main__":
-    IP = "0.0.0.0"
-    PORT = 9999
-
-    # 先启动驱动
-    driver_path = _get_driver_path()
-    _start_driver(driver_path, "127.0.0.1", PORT)
-
-    # 再启动脚本（Debug=False，因为驱动已手动启动）
+    # Debug=True 自动启动本机 WindowsDriver.exe
     Mir2Bot.execute(
-        IP=IP,
-        Port=PORT,
-        Debug=False,
+        IP="0.0.0.0",
+        Port=9999,
+        Debug=True,
         Qt=None,
         WebsocketSwitch=False,
         WebsocketPort=8888,

@@ -18,6 +18,8 @@
 """
 import time
 import os
+import sys
+import subprocess
 from datetime import datetime
 from PyAibote import WinBotMain
 
@@ -223,13 +225,69 @@ class Mir2Bot(WinBotMain):
         print(f"[{ts}] [{level}] {msg}")
 
 
+def _find_driver():
+    """找到 WindowsDriver.exe 路径（打包版从内部提取，源码版从pip包里找）"""
+    # 方案1：打包模式 - 从 PyInstaller 临时目录取
+    if getattr(sys, 'frozen', False):
+        driver = os.path.join(sys._MEIPASS, "WindowsDriver.exe")
+        if os.path.exists(driver):
+            return driver
+
+    # 方案2：源码模式 - 从 pip 安装的 PyAibote 包里找
+    try:
+        import PyAibote
+        pkg_dir = os.path.dirname(PyAibote.__file__)
+        driver = os.path.join(pkg_dir, "WinBotMain", "WindowsDriver", "WindowsDriver.exe")
+        if os.path.exists(driver):
+            return driver
+    except ImportError:
+        pass
+
+    # 方案3：当前目录
+    driver = os.path.join(SCRIPT_DIR, "WindowsDriver.exe")
+    if os.path.exists(driver):
+        return driver
+
+    return None
+
+
+def _start_driver():
+    """启动 WindowsDriver.exe（后台进程）"""
+    driver_path = _find_driver()
+    if not driver_path:
+        print("[ERROR] 找不到 WindowsDriver.exe！")
+        print("  打包版：bug反馈")
+        print("  源码版：pip install PyAibote 后重试")
+        return False
+
+    print(f"[INFO] 找到驱动: {driver_path}")
+    subprocess.Popen(
+        [driver_path],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+    )
+    print("[INFO] WindowsDriver.exe 已启动（后台）")
+    time.sleep(2)  # 等驱动启动
+    return True
+
+
 # ==================== 启动 ====================
 if __name__ == "__main__":
-    # Debug=True 自动启动本机 WindowsDriver.exe
+    print("=" * 50)
+    print("95沉默 PyAibote 挂机脚本")
+    print("=" * 50)
+
+    # 1. 启动 WindowsDriver（已打包进EXE，自动提取）
+    if not _start_driver():
+        input("按回车退出...")
+        sys.exit(1)
+
+    # 2. 启动挂机（Debug=False，因为我们已经手动启动了驱动）
     Mir2Bot.execute(
-        IP="0.0.0.0",
+        IP="127.0.0.1",
         Port=9999,
-        Debug=True,
+        Debug=False,       # 已手动启动驱动，不需要 PyAibote 自启
         Qt=None,
         WebsocketSwitch=False,
         WebsocketPort=8888,

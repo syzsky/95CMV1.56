@@ -74,13 +74,10 @@ jobs:
         shell: cmd
         run: |
           pip install PyAibote
-          python -c "import PyAibote, os; d=os.path.dirname(PyAibote.__file__); print('PyAibote dir:', d); [print(os.path.join(r,f)) for r,_,fs in os.walk(d) for f in fs if 'WindowsDriver' in f or f.endswith('.exe')]"
-          python -c "import PyAibote, os, shutil; d=os.path.dirname(PyAibote.__file__); src=os.path.join(d,'WindowsDriver','WindowsDriver.exe') if os.path.exists(os.path.join(d,'WindowsDriver','WindowsDriver.exe')) else [os.path.join(r,f) for r,_,fs in os.walk(d) for f in fs if 'WindowsDriver' in f and f.endswith('.exe')][0]; shutil.copy2(src,'WindowsDriver.exe'); print(f'OK: {os.path.getsize(src)} bytes')"
           pyinstaller --onefile --clean --noconfirm --name "95CM-AutoBot-PyAibote" --console ^
             --hidden-import PyAibote --hidden-import PyAibote.WindowsBot ^
             --hidden-import PyAibote.WindowsBotModel ^
             --hidden-import PyAibote.Tool --hidden-import PyAibote.CommonUse ^
-            --add-data "WindowsDriver.exe;." ^
             mir2_bot_pyaibote.py
       
       - name: Upload artifacts
@@ -108,12 +105,20 @@ jobs:
           name: v1.0 - 95CM AutoBot (latest)
           body: |
             ## 95CM AutoBot v1.0
-            
+
             ### Downloads
             - `95CM-AutoBot-CLI.exe` — 命令行版（旧版，需pywin32+OpenCV）
             - `95CM-AutoBot-GUI.exe` — 图形界面版（旧版）
             - `95CM-AutoBot-PyAibote.exe` — **PyAibote版（新版，推荐）**
-            
+
+            ### PyAibote版 使用说明
+            1. 下载 `95CM-AutoBot-PyAibote.exe`
+            2. 从 **www.pyaibote.com** 下载 `WindowsDriver.exe`
+            3. 把 `WindowsDriver.exe` 放 EXE 同目录
+            4. 双击 `95CM-AutoBot-PyAibote.exe` 运行
+
+            > ⚠️ WindowsDriver.exe **不能**打包进EXE，需自行下载
+
             ### Features (PyAibote版)
             - 基于 PyAibote RPA 框架，后台操作更稳定
             - 后台截图（窗口被遮挡也能正常工作）
@@ -121,11 +126,7 @@ jobs:
             - 后台找图（自动回收/自动补给）
             - 后台键鼠（PostMessage替代）
             - 单向巡逻 + 玩家躲避
-            
-            ### Requirements (PyAibote版)
-            - 需要 `WindowsDriver.exe` 放在同目录下
-            - 从 www.pyaibote.com 下载驱动
-            
+
             ### Legacy Features
             - NPC teleporter auto-dungeon
             - Minimap red dot detection + auto combat

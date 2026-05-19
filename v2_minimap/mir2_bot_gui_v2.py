@@ -104,6 +104,13 @@ class Mir2AutoBotV2:
         self.monster_hunter = MonsterHunter()
         self.monster_hunter.enabled = self.config.getboolean('MonsterHunt', 'enabled', fallback=False)
 
+        # ===== 自动回收器 =====
+        from auto_recycler import AutoRecycler
+        self.recycler = AutoRecycler()
+        self.recycler.enabled = self.config.getboolean('AutoRecycle', 'enabled', fallback=False)
+        self.recycler.bag_key = self.config.get('AutoRecycle', 'bag_key', fallback='F9')
+        self.recycler.recycle_interval = self.config.getint('AutoRecycle', 'recycle_interval', fallback=60)
+
         # ===== 职业技能（全职业） =====
         self.class_skills = ClassSkillManager()
         self.class_skills.enabled = self.config.getboolean('ClassSkills', 'enabled', fallback=False)
@@ -323,6 +330,7 @@ class Mir2AutoBotV2:
                 self.class_skills.set_hwnd(self.hwnd)
                 self.npc_teleporter.set_hwnd(self.hwnd)
                 self.monster_hunter.set_hwnd(self.hwnd)
+                self.recycler.set_hwnd(self.hwnd)
             return True
         else:
             self._log("Game window not found", "ERROR")
@@ -900,6 +908,19 @@ class BotGUI:
         ttk.Checkbutton(hunt_row, text="自动找怪（小地图红点导航）", variable=self.hunt_enabled_var).pack(side=tk.LEFT, padx=5)
         ttk.Label(hunt_row, text="（内挂负责打怪）", font=('Arial', 8, 'italic'), foreground='gray').pack(side=tk.LEFT, padx=2)
 
+        # --- 自动回收 ---
+        recycle_row = ttk.Frame(features_frame)
+        recycle_row.pack(fill=tk.X, pady=1)
+        self.recycle_enabled_var = tk.BooleanVar(
+            value=self.config.getboolean('AutoRecycle', 'enabled', fallback=False))
+        ttk.Checkbutton(recycle_row, text="自动回收背包", variable=self.recycle_enabled_var).pack(side=tk.LEFT, padx=5)
+        ttk.Label(recycle_row, text="背包键:", font=('Arial', 9)).pack(side=tk.LEFT, padx=2)
+        self.recycle_bag_key_var = tk.StringVar(
+            value=self.config.get('AutoRecycle', 'bag_key', fallback='F9'))
+        ttk.Entry(recycle_row, textvariable=self.recycle_bag_key_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(recycle_row, text="（截取回收按钮图片 = recycle_button.png）",
+                  font=('Arial', 8, 'italic'), foreground='gray').pack(side=tk.LEFT, padx=5)
+
         # --- 职业技能 ---
         skill_row = ttk.Frame(features_frame)
         skill_row.pack(fill=tk.X, pady=1)
@@ -1080,6 +1101,9 @@ class BotGUI:
 
         self.bot.monster_hunter.enabled = self.hunt_enabled_var.get()
 
+        self.bot.recycler.enabled = self.recycle_enabled_var.get()
+        self.bot.recycler.bag_key = self.recycle_bag_key_var.get()
+
         self.bot.class_skills.enabled = self.skill_enabled_var.get()
         self.bot.class_skills.class_name = self.class_var.get()
 
@@ -1187,6 +1211,9 @@ class BotGUI:
         self.config.set('NpcTeleport', 'target_dungeon_row', self.npc_row_var.get())
 
         self.config.set('MonsterHunt', 'enabled', str(self.hunt_enabled_var.get()))
+
+        self.config.set('AutoRecycle', 'enabled', str(self.recycle_enabled_var.get()))
+        self.config.set('AutoRecycle', 'bag_key', self.recycle_bag_key_var.get())
 
         self.config.set('ClassSkills', 'enabled', str(self.skill_enabled_var.get()))
         self.config.set('ClassSkills', 'class_name', self.class_var.get())

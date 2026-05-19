@@ -23,6 +23,7 @@ import ctypes
 # NPC传送和怪物猎手
 from npc_teleporter import NpcTeleporter, MonsterHunter
 from bot_engine import SmartEngine, BotState
+from auto_recycler import AutoRecycler
 
 # 获取脚本所在目录
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -134,6 +135,12 @@ class Mir2AutoBotV2:
         self.monster_hunter = MonsterHunter()
         self.monster_hunter.enabled = self.config.getboolean('MonsterHunt', 'enabled', fallback=False)
 
+        # 自动回收器
+        self.recycler = AutoRecycler()
+        self.recycler.enabled = self.config.getboolean('AutoRecycle', 'enabled', fallback=False)
+        self.recycler.recycle_interval = self.config.getint('AutoRecycle', 'recycle_interval', fallback=60)
+        self.recycler.bag_key = self.config.get('AutoRecycle', 'bag_key', fallback='F9')
+
         # 挂机模式: 'normal'（黄点躲避） / 'teleport'（NPC传送中） / 'hunt'（打怪）
         self.mode = 'normal'
         self.target_dungeon = self.config.get('NpcTeleport', 'target_dungeon', fallback='')
@@ -192,6 +199,11 @@ class Mir2AutoBotV2:
             },
             'MonsterHunt': {
                 'enabled': 'false',
+            },
+            'AutoRecycle': {
+                'enabled': 'false',
+                'bag_key': 'F9',
+                'recycle_interval': '60',
             }
         }
 
@@ -330,9 +342,10 @@ class Mir2AutoBotV2:
 
         self._calculate_minimap_region()
         
-        # 将hwnd传给NPC传送器和怪物猎手
+        # 将hwnd传给NPC传送器、怪物猎手和回收器
         self.npc_teleporter.set_hwnd(self.hwnd)
         self.monster_hunter.set_hwnd(self.hwnd)
+        self.recycler.set_hwnd(self.hwnd)
 
     def _calculate_minimap_region(self):
         """计算小地图区域（相对于客户区）"""

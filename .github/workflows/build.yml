@@ -71,22 +71,14 @@ jobs:
             mir2_bot_gui_v2.py
       
       - name: Build PyAibote version
-        shell: pwsh
         run: |
           pip install PyAibote
-          # 找到 WindowsDriver.exe 路径（PyAibote 包自带）
-          $driverPath = python -c "import PyAibote, os; print(os.path.join(os.path.dirname(PyAibote.__file__), 'WinBotMain', 'WindowsDriver', 'WindowsDriver.exe'))"
-          Write-Host "WindowsDriver.exe path: $driverPath"
-          if (-not (Test-Path $driverPath)) {
-            Write-Host "⚠️ 找不到WindowsDriver.exe"
-            exit 1
-          }
-          Copy-Item $driverPath "WindowsDriver.exe"
-          pyinstaller --onefile --clean --noconfirm --name "95CM-AutoBot-PyAibote" --console `
-            --hidden-import PyAibote --hidden-import PyAibote.WindowsBot `
-            --hidden-import PyAibote.WindowsBotModel `
-            --hidden-import PyAibote.Tool --hidden-import PyAibote.CommonUse `
-            --add-data "WindowsDriver.exe;." `
+          python -c "import PyAibote, os, shutil; src=os.path.join(os.path.dirname(PyAibote.__file__), 'WinBotMain', 'WindowsDriver', 'WindowsDriver.exe'); shutil.copy2(src, 'WindowsDriver.exe'); print(f'OK: {os.path.getsize(src)} bytes -> WindowsDriver.exe')"
+          pyinstaller --onefile --clean --noconfirm --name "95CM-AutoBot-PyAibote" --console ^
+            --hidden-import PyAibote --hidden-import PyAibote.WindowsBot ^
+            --hidden-import PyAibote.WindowsBotModel ^
+            --hidden-import PyAibote.Tool --hidden-import PyAibote.CommonUse ^
+            --add-data "WindowsDriver.exe;." ^
             mir2_bot_pyaibote.py
       
       - name: Upload artifacts

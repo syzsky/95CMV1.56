@@ -119,6 +119,9 @@ class SmartEngine:
         # 定时自动回收（间隔足够的话才执行）
         self.bot.recycler.try_recycle()
 
+        # 定时自动补给（间隔足够的话才执行）
+        self.bot.supply.do_supply()
+
         # 检测间隔
         interval = self.bot.config.getfloat('Detection', 'detection_interval', fallback=0.3)
         time.sleep(interval)

@@ -24,6 +24,7 @@ import ctypes
 from npc_teleporter import NpcTeleporter, MonsterHunter
 from bot_engine import SmartEngine, BotState
 from auto_recycler import AutoRecycler
+from supply_manager import SupplyManager
 
 # 获取脚本所在目录
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -141,6 +142,13 @@ class Mir2AutoBotV2:
         self.recycler.recycle_interval = self.config.getint('AutoRecycle', 'recycle_interval', fallback=180)
         self.recycler.bag_key = self.config.get('AutoRecycle', 'bag_key', fallback='F9')
 
+        # 自动补给管理器
+        self.supply = SupplyManager()
+        self.supply.enabled = self.config.getboolean('Supply', 'enabled', fallback=False)
+        self.supply.supply_interval = self.config.getint('Supply', 'supply_interval', fallback=300)
+        self.supply.buy_row = self.config.getint('Supply', 'buy_row', fallback=1)
+        self.supply.repair_row = self.config.getint('Supply', 'repair_row', fallback=2)
+
         # 挂机模式: 'normal'（黄点躲避） / 'teleport'（NPC传送中） / 'hunt'（打怪）
         self.mode = 'normal'
         self.target_dungeon = self.config.get('NpcTeleport', 'target_dungeon', fallback='')
@@ -204,6 +212,12 @@ class Mir2AutoBotV2:
                 'enabled': 'false',
                 'bag_key': 'F9',
                 'recycle_interval': '180',
+            },
+            'Supply': {
+                'enabled': 'false',
+                'buy_row': '1',
+                'repair_row': '2',
+                'supply_interval': '300',
             }
         }
 
@@ -346,6 +360,7 @@ class Mir2AutoBotV2:
         self.npc_teleporter.set_hwnd(self.hwnd)
         self.monster_hunter.set_hwnd(self.hwnd)
         self.recycler.set_hwnd(self.hwnd)
+        self.supply.set_hwnd(self.hwnd)
 
     def _calculate_minimap_region(self):
         """计算小地图区域（相对于客户区）"""

@@ -111,6 +111,13 @@ class Mir2AutoBotV2:
         self.recycler.bag_key = self.config.get('AutoRecycle', 'bag_key', fallback='F9')
         self.recycler.recycle_interval = self.config.getint('AutoRecycle', 'recycle_interval', fallback=180)
 
+        # ===== 自动补给 =====
+        from supply_manager import SupplyManager
+        self.supply = SupplyManager()
+        self.supply.enabled = self.config.getboolean('Supply', 'enabled', fallback=False)
+        self.supply.buy_row = self.config.getint('Supply', 'buy_row', fallback=1)
+        self.supply.repair_row = self.config.getint('Supply', 'repair_row', fallback=2)
+
         # ===== 职业技能（全职业） =====
         self.class_skills = ClassSkillManager()
         self.class_skills.enabled = self.config.getboolean('ClassSkills', 'enabled', fallback=False)
@@ -331,6 +338,7 @@ class Mir2AutoBotV2:
                 self.npc_teleporter.set_hwnd(self.hwnd)
                 self.monster_hunter.set_hwnd(self.hwnd)
                 self.recycler.set_hwnd(self.hwnd)
+                self.supply.set_hwnd(self.hwnd)
             return True
         else:
             self._log("Game window not found", "ERROR")
@@ -921,6 +929,13 @@ class BotGUI:
         ttk.Label(recycle_row, text="（截取回收按钮图片 = recycle_button.png）",
                   font=('Arial', 8, 'italic'), foreground='gray').pack(side=tk.LEFT, padx=5)
 
+        # --- 自动补给 ---
+        supply_row = ttk.Frame(features_frame)
+        supply_row.pack(fill=tk.X, pady=1)
+        self.supply_enabled_var = tk.BooleanVar(
+            value=self.config.getboolean('Supply', 'enabled', fallback=False))
+        ttk.Checkbutton(supply_row, text="自动补给（买药+修装备）", variable=self.supply_enabled_var).pack(side=tk.LEFT, padx=5)
+
         # --- 职业技能 ---
         skill_row = ttk.Frame(features_frame)
         skill_row.pack(fill=tk.X, pady=1)
@@ -1104,6 +1119,8 @@ class BotGUI:
         self.bot.recycler.enabled = self.recycle_enabled_var.get()
         self.bot.recycler.bag_key = self.recycle_bag_key_var.get()
 
+        self.bot.supply.enabled = self.supply_enabled_var.get()
+
         self.bot.class_skills.enabled = self.skill_enabled_var.get()
         self.bot.class_skills.class_name = self.class_var.get()
 
@@ -1214,6 +1231,8 @@ class BotGUI:
 
         self.config.set('AutoRecycle', 'enabled', str(self.recycle_enabled_var.get()))
         self.config.set('AutoRecycle', 'bag_key', self.recycle_bag_key_var.get())
+
+        self.config.set('Supply', 'enabled', str(self.supply_enabled_var.get()))
 
         self.config.set('ClassSkills', 'enabled', str(self.skill_enabled_var.get()))
         self.config.set('ClassSkills', 'class_name', self.class_var.get())

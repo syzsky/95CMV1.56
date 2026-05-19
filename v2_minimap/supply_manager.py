@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-自动补给模块 - 回城后找杂货铺NPC → 买药 → 修装备
-所有操作通过找图识别按钮，鼠标点击执行
-需要用户提供按钮截图放在脚本同目录
+自动补给模块
+检测快捷栏第1格是否有药（红药）
+没药了就去杂货铺买药+修装备
 """
 
 import time
@@ -24,13 +24,12 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 class SupplyManager:
     """自动补给管理器"""
 
-    # 需要的按钮模板文件名
     TEMPLATES = {
-        'buy': 'shop_buy.png',           # "购买" 对话框选项
-        'repair': 'shop_repair.png',      # "修理" 对话框选项
-        'buy_all': 'shop_buy_all.png',    # "全部购买" 按钮
-        'repair_all': 'shop_repair_all.png', # "全部修理" 按钮
-        'close': 'shop_close.png',        # 关闭按钮
+        'buy': 'shop_buy.png',
+        'repair': 'shop_repair.png',
+        'buy_all': 'shop_buy_all.png',
+        'repair_all': 'shop_repair_all.png',
+        'close': 'shop_close.png',
     }
 
     def __init__(self):
@@ -38,21 +37,26 @@ class SupplyManager:
         self.hwnd = None
         self.client_rect = None
 
-        # 杂货铺NPC坐标（盟重省）
-        self.npc_x = 330
-        self.npc_y = 330
+        # 快捷栏第1格区域（相对于客户区）
+        # 快捷栏在屏幕底部中间，每格约45x45像素
+        # 不同分辨率需要调整，可以先截图告诉我位置
+        self.slot1_x = 770
+        self.slot1_y = 980
+        self.slot1_w = 40
+        self.slot1_h = 40
 
-        # 对话行号
-        self.buy_row = 1      # "购买"是第几行
-        self.repair_row = 2   # "修理"是第几行
+        # 判断标准：格子平均亮度低于此值就算空
+        self.slot_empty_threshold = 30
 
-        # 补给间隔（秒）
-        self.supply_interval = 300  # 默认5分钟
+        # 对话框行号
+        self.buy_row = 1
+        self.repair_row = 2
+
+        # 补给间隔（防止反复回城）
+        self.supply_interval = 120  # 回城后至少等2分钟再去
 
         self.last_supply_time = 0
         self._templates = {}
-
-        # 背包快捷键
         self.bag_key = 'F9'
 
     def set_hwnd(self, hwnd: int):
@@ -61,7 +65,6 @@ class SupplyManager:
             self.client_rect = win32gui.GetClientRect(hwnd)
 
     def load_templates(self) -> bool:
-        """加载所有按钮模板"""
         all_ok = True
         for name, filename in self.TEMPLATES.items():
             path = os.path.join(SCRIPT_DIR, filename)
@@ -69,17 +72,14 @@ class SupplyManager:
                 template = cv2.imread(path)
                 if template is not None:
                     self._templates[name] = template
-                    logger.info(f"模板加载成功: {filename} ({template.shape[1]}x{template.shape[0]})")
+                    logger.info(f"模板加载: {filename}")
                 else:
-                    logger.warning(f"模板读取失败: {filename}")
                     all_ok = False
             else:
-                logger.warning(f"模板不存在: {filename}（请截图后保存到此路径）")
                 all_ok = False
         return all_ok
 
     def _capture_client(self) -> Optional[np.ndarray]:
-        """截取游戏客户区全屏"""
         if not self.hwnd or not self.client_rect:
             return None
         try:
@@ -106,8 +106,7 @@ class SupplyManager:
             logger.debug(f"截图失败: {e}")
             return None
 
-    def _find_template(self, screen: np.ndarray, name: str, threshold: float = 0.8) -> Optional[tuple]:
-        """在画面中找指定模板，返回中心坐标"""
+    def _find_template(self, screen: np.ndarray, name: str, threshold: float = 0.8):
         template = self._templates.get(name)
         if template is None:
             return None
@@ -119,12 +118,10 @@ class SupplyManager:
                 cy = max_loc[1] + template.shape[0] // 2
                 return (cx, cy)
             return None
-        except Exception as e:
-            logger.debug(f"找图[{name}]失败: {e}")
+        except:
             return None
 
     def _send_key(self, key_char: str):
-        """发送按键"""
         if not self.hwnd:
             return
         try:
@@ -132,11 +129,13 @@ class SupplyManager:
                 f_num = int(key_char[1:])
                 vk = win32con.VK_F1 + f_num - 1
             elif key_char.isdigit():
-                vk = win32con.VK_0 + int(key_char)
+                vk = ord(key_char)
             elif key_char.upper() == 'ENTER':
                 vk = win32con.VK_RETURN
             elif key_char.upper() == 'SPACE':
                 vk = win32con.VK_SPACE
+            elif key_char.upper() == 'ESC':
+                vk = win32con.VK_ESCAPE
             elif len(key_char) == 1 and key_char.isalpha():
                 vk = win32api.VkKeyScan(key_char.upper()) & 0xFF
             else:
@@ -144,11 +143,10 @@ class SupplyManager:
             win32gui.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk, 0)
             time.sleep(0.05)
             win32gui.PostMessage(self.hwnd, win32con.WM_KEYUP, vk, 0)
-        except Exception as e:
-            logger.debug(f"按键[{key_char}]: {e}")
+        except:
+            pass
 
     def _click_at(self, client_x: int, client_y: int):
-        """在客户区坐标点击鼠标"""
         if not self.hwnd:
             return
         try:
@@ -157,101 +155,114 @@ class SupplyManager:
             time.sleep(0.05)
             win32gui.PostMessage(self.hwnd, win32con.WM_LBUTTONUP, 0, lparam)
             time.sleep(0.3)
-        except Exception as e:
-            logger.debug(f"点击失败: {e}")
+        except:
+            pass
 
     def _click_dialog_row(self, row: int):
-        """点击对话框某一行"""
-        # 对话框第一行大概Y坐标，每行高度
+        """点击对话框某一行（默认坐标）"""
         first_row_y = 240
         row_height = 30
         click_x = 400
-
         cy = first_row_y + (row - 1) * row_height
-        logger.info(f"点击对话框第{row}行: ({click_x}, {cy})")
         self._click_at(click_x, cy)
 
-    def _wait_and_find(self, template_name: str, timeout: float = 3.0) -> Optional[tuple]:
-        """等待模板出现并找到它"""
+    def _wait_and_find(self, name: str, timeout: float = 3.0):
         start = time.time()
         while time.time() - start < timeout:
             screen = self._capture_client()
             if screen is not None:
-                pos = self._find_template(screen, template_name)
+                pos = self._find_template(screen, name)
                 if pos:
                     return pos
             time.sleep(0.3)
         return None
 
-    def buy_potions(self) -> bool:
+    # ====== 新增：检测快捷栏第1格是否有药 ======
+
+    def check_potion_slot(self) -> bool:
         """
-        执行购买药品
-        流程：找NPC→Enter→点"购买"行→点"全部购买"→关闭
+        检查快捷栏第1格是否有药
+        截图指定区域 → 算平均亮度 → 暗=没药
+        返回: True=有药 / False=没药
         """
         if not self.hwnd:
-            return False
+            return True  # 没连上就当有药，避免误回城
 
+        screen = self._capture_client()
+        if screen is None:
+            return True
+
+        h, w = screen.shape[:2]
+
+        # 检查坐标是否在画面范围内
+        x1 = min(self.slot1_x, w - 10)
+        y1 = min(self.slot1_y, h - 10)
+        x2 = min(x1 + self.slot1_w, w)
+        y2 = min(y1 + self.slot1_h, h)
+
+        if x2 <= x1 or y2 <= y1:
+            logger.warning(f"快捷栏区域超出画面 ({w}x{h})，请调整 slot1 坐标")
+            return True
+
+        # 截取格子区域
+        slot = screen[y1:y2, x1:x2]
+
+        # 算平均亮度（BGR转灰度）
+        gray = cv2.cvtColor(slot, cv2.COLOR_BGR2GRAY)
+        avg_brightness = float(np.mean(gray))
+
+        has_potion = avg_brightness > self.slot_empty_threshold
+        logger.debug(f"快捷栏第1格 亮度={avg_brightness:.1f} {'有药' if has_potion else '空了'}")
+        return has_potion
+
+    # ====== 购买和修理（保持不变） ======
+
+    def buy_potions(self) -> bool:
+        if not self.hwnd:
+            return False
         logger.info("=== 开始购买药品 ===")
 
-        # 1. 找杂货铺NPC（通过坐标走过去，按Enter对话）
-        # TODO: 颜色检测找NPC黄色名字走过去
         self._send_key('Enter')
         time.sleep(1.0)
 
-        # 2. 点"购买"行
         if 'buy' in self._templates:
             btn = self._wait_and_find('buy', 2.0)
             if btn:
-                logger.info(f"找到购买按钮: {btn}")
                 self._click_at(btn[0], btn[1])
             else:
-                logger.info("未找到购买模板，用行号点击")
                 self._click_dialog_row(self.buy_row)
         else:
             self._click_dialog_row(self.buy_row)
         time.sleep(1.0)
 
-        # 3. 点"全部购买"
         if 'buy_all' in self._templates:
             btn = self._wait_and_find('buy_all', 2.0)
             if btn:
-                logger.info(f"找到全部购买: {btn}")
                 self._click_at(btn[0], btn[1])
                 time.sleep(0.5)
 
-        # 4. 关闭商店
         if 'close' in self._templates:
             btn = self._find_template(self._capture_client(), 'close')
             if btn:
                 self._click_at(btn[0], btn[1])
                 time.sleep(0.5)
 
-        # 5. 按 Esc 确保关掉（万一没关掉）
         self._send_key('Esc')
         time.sleep(0.3)
-
         logger.info("=== 购买完成 ===")
         return True
 
     def repair_equipment(self) -> bool:
-        """
-        执行修理装备
-        流程：找NPC→Enter→点"修理"行→点"全部修理"→关闭
-        """
         if not self.hwnd:
             return False
-
         logger.info("=== 开始修理装备 ===")
 
-        # 1. 对话
         self._send_key('Enter')
         time.sleep(1.0)
 
-        # 2. 点"修理"行
         if 'repair' in self._templates:
             btn = self._wait_and_find('repair', 2.0)
             if btn:
-                logger.info(f"找到修理按钮: {btn}")
                 self._click_at(btn[0], btn[1])
             else:
                 self._click_dialog_row(self.repair_row)
@@ -259,15 +270,12 @@ class SupplyManager:
             self._click_dialog_row(self.repair_row)
         time.sleep(1.0)
 
-        # 3. 点"全部修理"
         if 'repair_all' in self._templates:
             btn = self._wait_and_find('repair_all', 2.0)
             if btn:
-                logger.info(f"找到全部修理: {btn}")
                 self._click_at(btn[0], btn[1])
                 time.sleep(0.5)
 
-        # 4. 关闭
         if 'close' in self._templates:
             btn = self._find_template(self._capture_client(), 'close')
             if btn:
@@ -276,23 +284,29 @@ class SupplyManager:
 
         self._send_key('Esc')
         time.sleep(0.3)
-
         logger.info("=== 修理完成 ===")
         return True
 
     def do_supply(self) -> bool:
         """
-        执行一次完整补给
-        买药 → 修理 → 返回
+        主入口：先检查快捷栏第1格 → 有药就不去 → 没药才去买
         """
-        now = time.time()
-        if now - self.last_supply_time < self.supply_interval:
+        if not self.enabled:
             return False
 
-        logger.info("========== 开始回城补给 ==========")
+        # 先检查快捷栏第1格有没有药
+        if self.check_potion_slot():
+            return False  # 还有药，不用回城
 
-        # 走到杂货铺NPC位置（通过坐标走向NPC）
-        # TODO: 导航到NPC坐标
+        # 没药了，检查是否刚补给过（避免反复回城）
+        now = time.time()
+        if now - self.last_supply_time < self.supply_interval:
+            logger.info("刚补给过不久，等冷却")
+            return False
+
+        logger.info("========== 快捷栏没药了，回城补给 ==========")
+
+        # TODO: 走到杂货铺NPC
         time.sleep(0.5)
 
         self.buy_potions()

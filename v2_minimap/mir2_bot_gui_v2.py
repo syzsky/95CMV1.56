@@ -117,6 +117,10 @@ class Mir2AutoBotV2:
         self.supply.enabled = self.config.getboolean('Supply', 'enabled', fallback=False)
         self.supply.buy_row = self.config.getint('Supply', 'buy_row', fallback=1)
         self.supply.repair_row = self.config.getint('Supply', 'repair_row', fallback=2)
+        self.supply.slot1_x = self.config.getint('Supply', 'slot1_x', fallback=770)
+        self.supply.slot1_y = self.config.getint('Supply', 'slot1_y', fallback=980)
+        self.supply.slot1_w = self.config.getint('Supply', 'slot1_w', fallback=40)
+        self.supply.slot1_h = self.config.getint('Supply', 'slot1_h', fallback=40)
 
         # ===== 职业技能（全职业） =====
         self.class_skills = ClassSkillManager()

@@ -145,9 +145,12 @@ class Mir2AutoBotV2:
         # 自动补给管理器
         self.supply = SupplyManager()
         self.supply.enabled = self.config.getboolean('Supply', 'enabled', fallback=False)
-        self.supply.supply_interval = self.config.getint('Supply', 'supply_interval', fallback=300)
         self.supply.buy_row = self.config.getint('Supply', 'buy_row', fallback=1)
         self.supply.repair_row = self.config.getint('Supply', 'repair_row', fallback=2)
+        self.supply.slot1_x = self.config.getint('Supply', 'slot1_x', fallback=770)
+        self.supply.slot1_y = self.config.getint('Supply', 'slot1_y', fallback=980)
+        self.supply.slot1_w = self.config.getint('Supply', 'slot1_w', fallback=40)
+        self.supply.slot1_h = self.config.getint('Supply', 'slot1_h', fallback=40)
 
         # 挂机模式: 'normal'（黄点躲避） / 'teleport'（NPC传送中） / 'hunt'（打怪）
         self.mode = 'normal'
@@ -217,7 +220,10 @@ class Mir2AutoBotV2:
                 'enabled': 'false',
                 'buy_row': '1',
                 'repair_row': '2',
-                'supply_interval': '300',
+                'slot1_x': '770',
+                'slot1_y': '980',
+                'slot1_w': '40',
+                'slot1_h': '40',
             }
         }
 

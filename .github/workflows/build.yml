@@ -49,7 +49,7 @@ jobs:
       - name: Build CLI version
         run: |
           pyinstaller --onefile --clean --noconfirm `
-            --name "95CM-AutoBot-CLI" --console `
+            --name "95cm-CLI" --console `
             --hidden-import win32gui --hidden-import win32con --hidden-import win32api `
             --hidden-import win32ui --hidden-import keyboard --hidden-import cv2 `
             --hidden-import numpy --hidden-import npc_teleporter --hidden-import class_skills `
@@ -59,7 +59,7 @@ jobs:
       
       - name: Build GUI version
         run: |
-          pyinstaller --onefile --clean --noconfirm --name "95CM-AutoBot-GUI" --windowed `
+          pyinstaller --onefile --clean --noconfirm --name "95cm-GUI" --windowed `
             --hidden-import win32gui --hidden-import win32con --hidden-import win32api `
             --hidden-import win32ui --hidden-import keyboard --hidden-import cv2 `
             --hidden-import numpy --hidden-import Pillow --hidden-import PIL.Image `
@@ -73,10 +73,10 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: 95CM-AutoBot-Exe
+          name: 95cm-Exe
           path: |
-            v2_minimap/dist/95CM-AutoBot-CLI.exe
-            v2_minimap/dist/95CM-AutoBot-GUI.exe
+            v2_minimap/dist/95cm-CLI.exe
+            v2_minimap/dist/95cm-GUI.exe
       
       - name: Delete old release
         continue-on-error: true
@@ -96,14 +96,14 @@ jobs:
             ## 95CM AutoBot v1.0
 
             ### Downloads
-            - `95CM-AutoBot-GUI.exe` — **图形界面版（推荐）**
-            - `95CM-AutoBot-CLI.exe` — 命令行版
+            - `95cm-GUI.exe` — **图形界面版（推荐）**
+            - `95cm-CLI.exe` — 命令行版
 
             GUI版基于 pywin32+OpenCV，无需额外驱动，下载即用。
             功能：NPC传送、自动回收、自动补给、角色信息、自动找怪等。
           files: |
-            v2_minimap/dist/95CM-AutoBot-CLI.exe
-            v2_minimap/dist/95CM-AutoBot-GUI.exe
+            v2_minimap/dist/95cm-CLI.exe
+            v2_minimap/dist/95cm-GUI.exe
           draft: false
           prerelease: false
         env:

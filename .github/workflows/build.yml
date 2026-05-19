@@ -107,32 +107,16 @@ jobs:
             ## 95CM AutoBot v1.0
 
             ### Downloads
-            - `95CM-AutoBot-CLI.exe` — 命令行版（旧版，需pywin32+OpenCV）
-            - `95CM-AutoBot-GUI.exe` — 图形界面版（旧版）
-            - `95CM-AutoBot-PyAibote.exe` — **PyAibote版（新版，推荐）**
+            - `95CM-AutoBot-CLI.exe` — 命令行版（旧版，无需额外驱动）
+            - `95CM-AutoBot-GUI.exe` — 图形界面版（旧版）**推荐**
+            - `95CM-AutoBot-PyAibote.exe` — PyAibote版（需自行配WindowsDriver.exe）
 
-            ### PyAibote版 使用说明
-            1. 下载 `95CM-AutoBot-PyAibote.exe`
-            2. 从 **www.pyaibote.com** 下载 `WindowsDriver.exe`
-            3. 把 `WindowsDriver.exe` 放 EXE 同目录
-            4. 双击 `95CM-AutoBot-PyAibote.exe` 运行
+            ### 推荐使用 GUI 版
+            GUI版基于 pywin32+OpenCV，无需额外驱动，下载即用。
+            功能比 PyAibote 版更完整（NPC传送、自动回收、自动补给、角色信息等）。
 
-            > ⚠️ WindowsDriver.exe **不能**打包进EXE，需自行下载
-
-            ### Features (PyAibote版)
-            - 基于 PyAibote RPA 框架，后台操作更稳定
-            - 后台截图（窗口被遮挡也能正常工作）
-            - 后台找色（检测小地图红点/黄点）
-            - 后台找图（自动回收/自动补给）
-            - 后台键鼠（PostMessage替代）
-            - 单向巡逻 + 玩家躲避
-
-            ### Legacy Features
-            - NPC teleporter auto-dungeon
-            - Minimap red dot detection + auto combat
-            - Multi-skill attack (F1,F2,F3...)
-            - Auto class skills (potions/summon/buff)
-            - Yellow dot avoidance (auto teleport when players detected)
+            ### PyAibote版 使用方式
+            下载后还需从 www.pyaibote.com 获取 WindowsDriver.exe 放同目录
           files: |
             v2_minimap/dist/95CM-AutoBot-CLI.exe
             v2_minimap/dist/95CM-AutoBot-GUI.exe

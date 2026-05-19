@@ -70,16 +70,6 @@ jobs:
             --add-data "bot_config_v2.ini;." `
             mir2_bot_gui_v2.py
       
-      - name: Build PyAibote version
-        shell: cmd
-        run: |
-          pip install PyAibote
-          pyinstaller --onefile --clean --noconfirm --name "95CM-AutoBot-PyAibote" --console ^
-            --hidden-import PyAibote --hidden-import PyAibote.WindowsBot ^
-            --hidden-import PyAibote.WindowsBotModel ^
-            --hidden-import PyAibote.Tool --hidden-import PyAibote.CommonUse ^
-            mir2_bot_pyaibote.py
-      
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -87,7 +77,6 @@ jobs:
           path: |
             v2_minimap/dist/95CM-AutoBot-CLI.exe
             v2_minimap/dist/95CM-AutoBot-GUI.exe
-            v2_minimap/dist/95CM-AutoBot-PyAibote.exe
       
       - name: Delete old release
         continue-on-error: true
@@ -107,20 +96,14 @@ jobs:
             ## 95CM AutoBot v1.0
 
             ### Downloads
-            - `95CM-AutoBot-CLI.exe` — 命令行版（旧版，无需额外驱动）
-            - `95CM-AutoBot-GUI.exe` — 图形界面版（旧版）**推荐**
-            - `95CM-AutoBot-PyAibote.exe` — PyAibote版（需自行配WindowsDriver.exe）
+            - `95CM-AutoBot-GUI.exe` — **图形界面版（推荐）**
+            - `95CM-AutoBot-CLI.exe` — 命令行版
 
-            ### 推荐使用 GUI 版
             GUI版基于 pywin32+OpenCV，无需额外驱动，下载即用。
-            功能比 PyAibote 版更完整（NPC传送、自动回收、自动补给、角色信息等）。
-
-            ### PyAibote版 使用方式
-            下载后还需从 www.pyaibote.com 获取 WindowsDriver.exe 放同目录
+            功能：NPC传送、自动回收、自动补给、角色信息、自动找怪等。
           files: |
             v2_minimap/dist/95CM-AutoBot-CLI.exe
             v2_minimap/dist/95CM-AutoBot-GUI.exe
-            v2_minimap/dist/95CM-AutoBot-PyAibote.exe
           draft: false
           prerelease: false
         env:

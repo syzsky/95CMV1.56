@@ -44,6 +44,8 @@ class MinimapDetector:
     def __init__(self):
         self.yellow_lower_rgb = np.array([250, 250, 0])
         self.yellow_upper_rgb = np.array([255, 255, 5])
+        self.red_lower_rgb = np.array([250, 0, 0])
+        self.red_upper_rgb = np.array([255, 5, 5])
         self.min_contour_area = 1
 
     def detect(self, image: np.ndarray) -> List[Tuple[int, int, int]]:
@@ -62,6 +64,22 @@ class MinimapDetector:
                     cy = int(M["m01"] / M["m00"])
                     yellow_dots.append((cx, cy, int(area)))
         return yellow_dots
+
+    def detect_red_dots(self, image: np.ndarray) -> List[Tuple[int, int, int]]:
+        """检测小地图上的红点（怪物）"""
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        red_mask = cv2.inRange(rgb, self.red_lower_rgb, self.red_upper_rgb)
+        contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        red_dots = []
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area >= self.min_contour_area:
+                M = cv2.moments(contour)
+                if M["m00"] > 0:
+                    cx = int(M["m10"] / M["m00"])
+                    cy = int(M["m01"] / M["m00"])
+                    red_dots.append((cx, cy, int(area)))
+        return red_dots
 
 class Mir2AutoBotV2:
     """传奇2自动挂机机器人 V2 - 后台截图版"""

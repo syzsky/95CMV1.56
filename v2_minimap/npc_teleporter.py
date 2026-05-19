@@ -363,31 +363,23 @@ class NpcTeleporter:
 
 class MonsterHunter:
     """
-    自动找怪打怪模块
-    通过检测小地图上的红点（怪物）自动走过去攻击
-    支持多技能按键循环
+    自动找怪导航模块
+    检测小地图红点 → 走过去 → 内挂自动打
+    不手动攻击，只负责导航
     """
 
     def __init__(self):
         self.enabled = False
         self.hwnd = None
 
-        # 攻击设置 - 支持多技能循环
-        self.attack_keys = ['F1', 'F2']   # 技能按键列表
-        self.attack_interval = 0.5         # 每个技能间隔
-        self.skill_rotation_interval = 2.0 # 一轮技能打完后等待
-
-        self.attack_range = 5              # 攻击范围（小地图像素）
-
-        # 走路设置
+        # 导航设置
+        self.nav_range = 6                # 走到红点多近算"到了"（小地图像素）
         self.walk_duration = 0.3
         self.walk_pause = 0.5
 
         # 状态
         self.is_hunting = False
         self.current_target = None
-        self.last_attack_time = 0
-        self._skill_index = 0               # 当前技能索引
 
     def set_hwnd(self, hwnd: int):
         self.hwnd = hwnd
@@ -403,13 +395,13 @@ class MonsterHunter:
         except Exception as e:
             logger.debug(f"按键[{key_char}]: {e}")
 
-    def hunt(self, red_dots: List[Tuple[int, int, int]],
+    def navigate(self, red_dots: List[Tuple[int, int, int]],
              minimap_center_x: int, minimap_center_y: int) -> str:
         """
-        找怪打怪主逻辑
-        red_dots: [(x, y, area), ...] 红点列表
-        minimap_center_x/y: 小地图中心（玩家位置）
-        返回: 'idle' / 'walking' / 'attacking' / 'no_target'
+        导航到最近的红点（怪物）
+        走到足够近后返回 'arrived'，让内挂自动打
+        red_dots: [(x, y, area), ...]
+        返回: 'idle' / 'walking' / 'arrived' / 'no_target'
         """
         if not self.enabled or not self.is_hunting:
             return 'idle'
@@ -432,17 +424,15 @@ class MonsterHunter:
         tx, ty, area = nearest
         self.current_target = (tx, ty)
 
-        # 计算方向（小地图上，上=北=W，右=东=D）
+        # 计算方向
         dx = tx - minimap_center_x
         dy = ty - minimap_center_y
-        dist = abs(dx) + abs(dy)
 
-        logger.debug(f"猎怪: 目标({tx},{ty}) 距离={dist} 方向=({dx},{dy})")
+        logger.debug(f"导航: 目标({tx},{ty}) 距离={nearest_dist}")
 
-        if dist <= self.attack_range:
-            # 在攻击范围内，攻击
-            self._attack()
-            return 'attacking'
+        if nearest_dist <= self.nav_range:
+            # 走到红点旁边了，让内挂自动打
+            return 'arrived'
         else:
             # 走向目标
             self._walk_to(dx, dy)
@@ -450,7 +440,6 @@ class MonsterHunter:
 
     def _walk_to(self, dx: int, dy: int):
         """朝红点方向走"""
-        # 优先走距离更长的方向
         if abs(dx) > abs(dy):
             if dx > 0:
                 self.send_key('D', self.walk_duration)
@@ -463,76 +452,14 @@ class MonsterHunter:
                 self.send_key('W', self.walk_duration)
         time.sleep(self.walk_pause)
 
-    def _attack(self):
-        """攻击当前目标 - self.attack_keys 里多项技能轮流按 - """
-        current_time = time.time()
-        if current_time - self.last_attack_time < self.attack_interval:
-            return
-
-        if not self.attack_keys:
-            return
-
-        try:
-            # 取当前技能
-            key = self.attack_keys[self._skill_index]
-            self._send_vk(key)
-
-            self.last_attack_time = current_time
-            logger.info(f"攻击 [{key}] (技能{self._skill_index+1}/{len(self.attack_keys)})")
-
-            # 切换到下一个技能
-            self._skill_index = (self._skill_index + 1) % len(self.attack_keys)
-            if self._skill_index == 0:
-                # 一轮技能打完，等待
-                time.sleep(self.skill_rotation_interval)
-        except Exception as e:
-            logger.debug(f"攻击失败: {e}")
-
-    def _send_vk(self, key: str):
-        """根据键名发送虚拟按键"""
-        if not self.hwnd:
-            return
-        # F1-F12
-        if key.startswith('F') and key[1:].isdigit():
-            f_num = int(key[1:])
-            vk = win32con.VK_F1 + f_num - 1
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk, 0)
-            time.sleep(0.05)
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYUP, vk, 0)
-        # 数字键 0-9
-        elif key.isdigit():
-            vk = win32con.VK_0 + int(key)
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk, 0)
-            time.sleep(0.05)
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYUP, vk, 0)
-        # 字母键 A-Z
-        elif len(key) == 1 and key.isalpha():
-            vk = win32api.VkKeyScan(key.upper()) & 0xFF
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk, 0)
-            time.sleep(0.05)
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYUP, vk, 0)
-        # 特殊键
-        else:
-            key_map = {
-                'Enter': win32con.VK_RETURN,
-                'Space': win32con.VK_SPACE,
-                'Tab':   win32con.VK_TAB,
-                'Esc':   win32con.VK_ESCAPE,
-            }
-            vk = key_map.get(key)
-            if vk:
-                win32gui.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk, 0)
-                time.sleep(0.05)
-                win32gui.PostMessage(self.hwnd, win32con.WM_KEYUP, vk, 0)
-
     def start_hunting(self):
-        """开始打怪模式"""
+        """开始导航模式"""
         self.is_hunting = True
         self.current_target = None
-        logger.info("开始自动打怪")
+        logger.info("开始自动找怪导航")
 
     def stop_hunting(self):
-        """停止打怪"""
+        """停止导航"""
         self.is_hunting = False
         self.current_target = None
-        logger.info("停止自动打怪")
+        logger.info("停止自动找怪导航")

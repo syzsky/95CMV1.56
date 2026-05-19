@@ -103,11 +103,6 @@ class Mir2AutoBotV2:
         # ===== 怪物猎手 =====
         self.monster_hunter = MonsterHunter()
         self.monster_hunter.enabled = self.config.getboolean('MonsterHunt', 'enabled', fallback=False)
-        keys_str = self.config.get('MonsterHunt', 'attack_keys', fallback='F1,F2')
-        self.monster_hunter.attack_keys = [k.strip() for k in keys_str.split(',') if k.strip()]
-        self.monster_hunter.attack_interval = self.config.getfloat('MonsterHunt', 'attack_interval', fallback=0.5)
-        self.monster_hunter.skill_rotation_interval = self.config.getfloat(
-            'MonsterHunt', 'skill_rotation_interval', fallback=2.0)
 
         # ===== 职业技能（全职业） =====
         self.class_skills = ClassSkillManager()
@@ -832,7 +827,7 @@ class BotGUI:
         title_label.pack(pady=2)
 
         desc_label = ttk.Label(main_frame,
-                               text="后台截图 | 检测黄点/红点 | NPC传送 | 自动打怪 | 职业技能 | 自动寻路",
+                               text="后台截图 | 小地图红点导航+内挂打怪 | NPC传送 | 职业技能 | 黄点躲避 | 单向巡逻",
                                font=('Arial', 9))
         desc_label.pack(pady=1)
 
@@ -897,20 +892,13 @@ class BotGUI:
             value=self.config.get('NpcTeleport', 'target_dungeon_row', fallback='1'))
         ttk.Spinbox(npc_row, from_=1, to=20, textvariable=self.npc_row_var, width=4).pack(side=tk.LEFT, padx=2)
 
-        # --- 自动打怪 ---
+        # --- 自动找怪导航 ---
         hunt_row = ttk.Frame(features_frame)
         hunt_row.pack(fill=tk.X, pady=1)
         self.hunt_enabled_var = tk.BooleanVar(
             value=self.config.getboolean('MonsterHunt', 'enabled', 'enabled', fallback=False))
-        ttk.Checkbutton(hunt_row, text="自动打怪", variable=self.hunt_enabled_var).pack(side=tk.LEFT, padx=5)
-        ttk.Label(hunt_row, text="技能键:").pack(side=tk.LEFT, padx=2)
-        self.hunt_keys_var = tk.StringVar(
-            value=self.config.get('MonsterHunt', 'attack_keys', fallback='F1,F2,F3'))
-        ttk.Entry(hunt_row, textvariable=self.hunt_keys_var, width=16).pack(side=tk.LEFT, padx=2)
-        ttk.Label(hunt_row, text="间隔:").pack(side=tk.LEFT, padx=2)
-        self.hunt_interval_var = tk.StringVar(
-            value=self.config.get('MonsterHunt', 'attack_interval', fallback='0.5'))
-        ttk.Entry(hunt_row, textvariable=self.hunt_interval_var, width=5).pack(side=tk.LEFT, padx=2)
+        ttk.Checkbutton(hunt_row, text="自动找怪（小地图红点导航）", variable=self.hunt_enabled_var).pack(side=tk.LEFT, padx=5)
+        ttk.Label(hunt_row, text="（内挂负责打怪）", font=('Arial', 8, 'italic'), foreground='gray').pack(side=tk.LEFT, padx=2)
 
         # --- 职业技能 ---
         skill_row = ttk.Frame(features_frame)
@@ -1091,9 +1079,6 @@ class BotGUI:
         self.bot.npc_teleporter.target_dungeon_row = int(self.npc_row_var.get())
 
         self.bot.monster_hunter.enabled = self.hunt_enabled_var.get()
-        keys_str = self.hunt_keys_var.get()
-        self.bot.monster_hunter.attack_keys = [k.strip() for k in keys_str.split(',') if k.strip()]
-        self.bot.monster_hunter.attack_interval = float(self.hunt_interval_var.get())
 
         self.bot.class_skills.enabled = self.skill_enabled_var.get()
         self.bot.class_skills.class_name = self.class_var.get()
@@ -1202,8 +1187,6 @@ class BotGUI:
         self.config.set('NpcTeleport', 'target_dungeon_row', self.npc_row_var.get())
 
         self.config.set('MonsterHunt', 'enabled', str(self.hunt_enabled_var.get()))
-        self.config.set('MonsterHunt', 'attack_keys', self.hunt_keys_var.get())
-        self.config.set('MonsterHunt', 'attack_interval', self.hunt_interval_var.get())
 
         self.config.set('ClassSkills', 'enabled', str(self.skill_enabled_var.get()))
         self.config.set('ClassSkills', 'class_name', self.class_var.get())

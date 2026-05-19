@@ -130,14 +130,9 @@ class Mir2AutoBotV2:
         self.npc_teleporter.find_npc_mode = self.config.get('NpcTeleport', 'find_npc_mode', fallback='none')
         self.npc_teleporter.target_dungeon_row = self.config.getint('NpcTeleport', 'target_dungeon_row', fallback=1)
 
-        # 怪物猎手
+        # 怪物导航器
         self.monster_hunter = MonsterHunter()
         self.monster_hunter.enabled = self.config.getboolean('MonsterHunt', 'enabled', fallback=False)
-        # 读取多技能键（逗号分隔）
-        keys_str = self.config.get('MonsterHunt', 'attack_keys', fallback='F1,F2')
-        self.monster_hunter.attack_keys = [k.strip() for k in keys_str.split(',') if k.strip()]
-        self.monster_hunter.attack_interval = self.config.getfloat('MonsterHunt', 'attack_interval', fallback=0.5)
-        self.monster_hunter.skill_rotation_interval = self.config.getfloat('MonsterHunt', 'skill_rotation_interval', fallback=2.0)
 
         # 挂机模式: 'normal'（黄点躲避） / 'teleport'（NPC传送中） / 'hunt'（打怪）
         self.mode = 'normal'
@@ -197,7 +192,6 @@ class Mir2AutoBotV2:
             },
             'MonsterHunt': {
                 'enabled': 'false',
-                'attack_key': 'F1',
             }
         }
 

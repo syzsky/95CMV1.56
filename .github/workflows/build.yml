@@ -74,7 +74,8 @@ jobs:
         shell: cmd
         run: |
           pip install PyAibote
-          python -c "import PyAibote, os, shutil; src=os.path.join(os.path.dirname(PyAibote.__file__), 'WinBotMain', 'WindowsDriver', 'WindowsDriver.exe'); shutil.copy2(src, 'WindowsDriver.exe'); print(f'OK: {os.path.getsize(src)} bytes -> WindowsDriver.exe')"
+          python -c "import PyAibote, os; d=os.path.dirname(PyAibote.__file__); print('PyAibote dir:', d); [print(os.path.join(r,f)) for r,_,fs in os.walk(d) for f in fs if 'WindowsDriver' in f or f.endswith('.exe')]"
+          python -c "import PyAibote, os, shutil; d=os.path.dirname(PyAibote.__file__); src=os.path.join(d,'WindowsDriver','WindowsDriver.exe') if os.path.exists(os.path.join(d,'WindowsDriver','WindowsDriver.exe')) else [os.path.join(r,f) for r,_,fs in os.walk(d) for f in fs if 'WindowsDriver' in f and f.endswith('.exe')][0]; shutil.copy2(src,'WindowsDriver.exe'); print(f'OK: {os.path.getsize(src)} bytes')"
           pyinstaller --onefile --clean --noconfirm --name "95CM-AutoBot-PyAibote" --console ^
             --hidden-import PyAibote --hidden-import PyAibote.WindowsBot ^
             --hidden-import PyAibote.WindowsBotModel ^

@@ -70,6 +70,14 @@ jobs:
             --add-data "bot_config_v2.ini;." `
             mir2_bot_gui_v2.py
       
+      - name: Build PyAibote version
+        run: |
+          pip install PyAibote
+          pyinstaller --onefile --clean --noconfirm --name "95CM-AutoBot-PyAibote" --console `
+            --hidden-import PyAibote --hidden-import PyAibote.WindowsBot `
+            --hidden-import PyAibote.WindowsBotModel `
+            mir2_bot_pyaibote.py
+      
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -77,6 +85,7 @@ jobs:
           path: |
             v2_minimap/dist/95CM-AutoBot-CLI.exe
             v2_minimap/dist/95CM-AutoBot-GUI.exe
+            v2_minimap/dist/95CM-AutoBot-PyAibote.exe
       
       - name: Delete old release
         continue-on-error: true
@@ -95,19 +104,33 @@ jobs:
           body: |
             ## 95CM AutoBot v1.0
             
-            ### Features
+            ### Downloads
+            - `95CM-AutoBot-CLI.exe` — 命令行版（旧版，需pywin32+OpenCV）
+            - `95CM-AutoBot-GUI.exe` — 图形界面版（旧版）
+            - `95CM-AutoBot-PyAibote.exe` — **PyAibote版（新版，推荐）**
+            
+            ### Features (PyAibote版)
+            - 基于 PyAibote RPA 框架，后台操作更稳定
+            - 后台截图（窗口被遮挡也能正常工作）
+            - 后台找色（检测小地图红点/黄点）
+            - 后台找图（自动回收/自动补给）
+            - 后台键鼠（PostMessage替代）
+            - 单向巡逻 + 玩家躲避
+            
+            ### Requirements (PyAibote版)
+            - 需要 `WindowsDriver.exe` 放在同目录下
+            - 从 www.pyaibote.com 下载驱动
+            
+            ### Legacy Features
             - NPC teleporter auto-dungeon
             - Minimap red dot detection + auto combat
             - Multi-skill attack (F1,F2,F3...)
             - Auto class skills (potions/summon/buff)
             - Yellow dot avoidance (auto teleport when players detected)
-            - Window selection with list fallback
-            
-            ### Usage
-            Download and run. Config file auto-created at exe path.
           files: |
             v2_minimap/dist/95CM-AutoBot-CLI.exe
             v2_minimap/dist/95CM-AutoBot-GUI.exe
+            v2_minimap/dist/95CM-AutoBot-PyAibote.exe
           draft: false
           prerelease: false
         env:

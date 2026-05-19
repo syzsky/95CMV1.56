@@ -920,7 +920,7 @@ class BotGUI:
         hunt_row = ttk.Frame(features_frame)
         hunt_row.pack(fill=tk.X, pady=1)
         self.hunt_enabled_var = tk.BooleanVar(
-            value=self.config.getboolean('MonsterHunt', 'enabled', 'enabled', fallback=False))
+            value=self.config.getboolean('MonsterHunt', 'enabled', fallback=False))
         ttk.Checkbutton(hunt_row, text="自动找怪（小地图红点导航）", variable=self.hunt_enabled_var).pack(side=tk.LEFT, padx=5)
         ttk.Label(hunt_row, text="（内挂负责打怪）", font=('Arial', 8, 'italic'), foreground='gray').pack(side=tk.LEFT, padx=2)
 

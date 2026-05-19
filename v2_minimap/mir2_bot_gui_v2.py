@@ -31,6 +31,7 @@ from class_skills import ClassSkillManager
 from auto_nav import AutoNavigator
 from map_detector import MapDetector
 from status_monitor import StatusMonitor
+from character_info import CharacterInfo
 
 # 获取脚本所在目录
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -800,6 +801,9 @@ class BotGUI:
         self.bot = None
         self.bot_thread = None
         
+        # 角色信息读取器
+        self.character_info = CharacterInfo()
+        
         # 为每个实例创建独立的配置文件
         self.config_file = self._get_instance_config_file()
         self.config = self._load_config()
@@ -974,6 +978,14 @@ class BotGUI:
         self.minimap_label = ttk.Label(status_frame, text="小地图: 未设置", font=('Arial', 9))
         self.minimap_label.pack(anchor=tk.W)
 
+        # 角色信息
+        char_frame = ttk.Frame(status_frame)
+        char_frame.pack(fill=tk.X, pady=2)
+        self.char_info_label = ttk.Label(char_frame, text="角色: 未读取", font=('Arial', 9))
+        self.char_info_label.pack(side=tk.LEFT)
+        self.calibrate_char_btn = ttk.Button(char_frame, text="校准信息", command=self.calibrate_character_info, width=10)
+        self.calibrate_char_btn.pack(side=tk.RIGHT, padx=5)
+
         # ===== 运行日志 =====
         log_frame = ttk.LabelFrame(main_frame, text="运行日志", padding="5")
         log_frame.pack(fill=tk.BOTH, expand=True, pady=3)
@@ -1107,6 +1119,14 @@ class BotGUI:
         self.bot.hwnd = hwnd
         self.bot.window_title = title
         self.bot._init_window_info()
+
+        # 连接角色信息读取器
+        self.character_info.set_hwnd(hwnd)
+        # 自动校准血条位置
+        self.character_info.auto_calibrate()
+        info = self.character_info.update()
+        self.char_info_label.config(text=info.get('char_display', '角色信息已连接'))
+        self.log(f"角色信息已连接: {self.character_info.get_info_text()}")
 
         # 传递快速设置
         self.bot.config.set('Teleport', 'teleport_key', self.teleport_key_var.get())
@@ -1252,6 +1272,20 @@ class BotGUI:
         if self.bot and self.bot.running:
             self.update_stats()
             
+            # 更新角色信息（每2秒）
+            now_ms = int(time.time() * 1000)
+            if getattr(self, '_last_char_update', 0) + 2000 < now_ms:
+                self._last_char_update = now_ms
+                try:
+                    info = self.character_info.update()
+                    hp = info.get('hp_percent', 0)
+                    mp = info.get('mp_percent', 0)
+                    self.char_info_label.config(
+                        text=f"角色: 💖HP {hp:.0f}% | 💙MP {mp:.0f}% | {info.get('window_title', '')}"
+                    )
+                except Exception as e:
+                    self.log(f"读取角色信息失败: {e}", "WARNING")
+            
             # 每15分钟清理一次debug目录
             if self.bot.stats['start_time']:
                 elapsed = (datetime.now() - self.bot.stats['start_time']).total_seconds()
@@ -1259,6 +1293,23 @@ class BotGUI:
                     self._cleanup_debug_dir()
             
             self.root.after(1000, self._update_stats_loop)
+    
+    def calibrate_character_info(self):
+        """校准角色信息（血条位置）"""
+        selection = self.window_combo.current()
+        if selection < 0 or selection >= len(self.found_windows):
+            messagebox.showwarning("提示", "请先选择游戏窗口")
+            return
+
+        hwnd, title = self.found_windows[selection]
+        self.character_info.set_hwnd(hwnd)
+        self.character_info.auto_calibrate()
+        info = self.character_info.update()
+        self.char_info_label.config(
+            text=f"角色: 💖HP {info.get('hp_percent', 0):.0f}% | 💙MP {info.get('mp_percent', 0):.0f}%"
+        )
+        self.log(f"角色校准完成: HP条({self.character_info.hp_bar_x},{self.character_info.hp_bar_y}) "
+                 f"MP条({self.character_info.mp_bar_x},{self.character_info.mp_bar_y})")
     
     def _cleanup_debug_dir(self):
         """清理debug目录"""

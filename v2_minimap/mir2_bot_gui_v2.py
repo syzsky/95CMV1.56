@@ -109,7 +109,7 @@ class Mir2AutoBotV2:
         self.recycler = AutoRecycler()
         self.recycler.enabled = self.config.getboolean('AutoRecycle', 'enabled', fallback=False)
         self.recycler.bag_key = self.config.get('AutoRecycle', 'bag_key', fallback='F9')
-        self.recycler.recycle_interval = self.config.getint('AutoRecycle', 'recycle_interval', fallback=60)
+        self.recycler.recycle_interval = self.config.getint('AutoRecycle', 'recycle_interval', fallback=180)
 
         # ===== 职业技能（全职业） =====
         self.class_skills = ClassSkillManager()

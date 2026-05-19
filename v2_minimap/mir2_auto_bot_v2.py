@@ -138,7 +138,7 @@ class Mir2AutoBotV2:
         # 自动回收器
         self.recycler = AutoRecycler()
         self.recycler.enabled = self.config.getboolean('AutoRecycle', 'enabled', fallback=False)
-        self.recycler.recycle_interval = self.config.getint('AutoRecycle', 'recycle_interval', fallback=60)
+        self.recycler.recycle_interval = self.config.getint('AutoRecycle', 'recycle_interval', fallback=180)
         self.recycler.bag_key = self.config.get('AutoRecycle', 'bag_key', fallback='F9')
 
         # 挂机模式: 'normal'（黄点躲避） / 'teleport'（NPC传送中） / 'hunt'（打怪）
@@ -203,7 +203,7 @@ class Mir2AutoBotV2:
             'AutoRecycle': {
                 'enabled': 'false',
                 'bag_key': 'F9',
-                'recycle_interval': '60',
+                'recycle_interval': '180',
             }
         }
 

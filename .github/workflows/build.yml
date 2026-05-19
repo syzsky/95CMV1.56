@@ -71,6 +71,7 @@ jobs:
             mir2_bot_gui_v2.py
       
       - name: Build PyAibote version
+        shell: cmd
         run: |
           pip install PyAibote
           python -c "import PyAibote, os, shutil; src=os.path.join(os.path.dirname(PyAibote.__file__), 'WinBotMain', 'WindowsDriver', 'WindowsDriver.exe'); shutil.copy2(src, 'WindowsDriver.exe'); print(f'OK: {os.path.getsize(src)} bytes -> WindowsDriver.exe')"

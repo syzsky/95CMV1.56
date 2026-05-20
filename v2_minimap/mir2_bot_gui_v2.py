@@ -397,73 +397,81 @@ class Mir2AutoBotV2:
         self._log(f"Minimap region: {self.minimap_region}")
 
     def capture_minimap(self) -> Optional[np.ndarray]:
-        """后台捕获小地图 - 使用Win32 API"""
+        """后台捕获小地图 - BitBlt优先，黑屏则切前台截图"""
         if not self.client_rect or not self.minimap_region:
             return None
 
         try:
+            # 方法1: BitBlt 截图（速度快，但D3D游戏可能黑屏）
             client_width = self.client_rect[2] - self.client_rect[0]
             client_height = self.client_rect[3] - self.client_rect[1]
 
-            # 获取窗口DC
             hwndDC = win32gui.GetWindowDC(self.hwnd)
             mfcDC = win32ui.CreateDCFromHandle(hwndDC)
             saveDC = mfcDC.CreateCompatibleDC()
-
-            # 创建位图
             saveBitMap = win32ui.CreateBitmap()
             saveBitMap.CreateCompatibleBitmap(mfcDC, client_width, client_height)
             saveDC.SelectObject(saveBitMap)
-
-            img = None
-            
-            # 方法1: 尝试PrintWindow
-            # 使用BitBlt进行截图（比PrintWindow更可靠）
-
             saveDC.BitBlt((0, 0), (client_width, client_height), mfcDC, (0, 0), win32con.SRCCOPY)
 
             bmpinfo = saveBitMap.GetInfo()
-
             bmpstr = saveBitMap.GetBitmapBits(True)
-
             img = np.frombuffer(bmpstr, dtype='uint8')
-
             img.shape = (bmpinfo['bmHeight'], bmpinfo['bmWidth'], 4)
-
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-            minimap_x, minimap_y, minimap_w, minimap_h = self.minimap_region
-            minimap = img[minimap_y:minimap_y+minimap_h, minimap_x:minimap_x+minimap_w]
 
-            # 清理资源
             win32gui.DeleteObject(saveBitMap.GetHandle())
             saveDC.DeleteDC()
             mfcDC.DeleteDC()
             win32gui.ReleaseDC(self.hwnd, hwndDC)
 
-            return minimap
+            # 检查是否黑屏（平均亮度<20）
+            if img.mean() > 20:
+                minimap_x, minimap_y, minimap_w, minimap_h = self.minimap_region
+                return img[minimap_y:minimap_y+minimap_h, minimap_x:minimap_x+minimap_w]
+
+            self._log("BitBlt截图黑屏，尝试前台截图...", "WARNING")
 
         except Exception as e:
-            self._log(f"Background capture failed: {e}", "ERROR")
+            self._log(f"BitBlt截图失败: {e}，尝试前台截图...", "WARNING")
+
+        # 方法2: 前台截图（PIL.ImageGrab - 兼容DirectX游戏）
+        try:
+            from PIL import ImageGrab
+            client_left, client_top = win32gui.ClientToScreen(self.hwnd, (0, 0))
+            client_width = self.client_rect[2] - self.client_rect[0]
+            client_height = self.client_rect[3] - self.client_rect[1]
+            screenshot = ImageGrab.grab(bbox=(
+                client_left, client_top,
+                client_left + client_width,
+                client_top + client_height
+            ))
+            img = np.array(screenshot)
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+            minimap_x, minimap_y, minimap_w, minimap_h = self.minimap_region
+            return img[minimap_y:minimap_y+minimap_h, minimap_x:minimap_x+minimap_w]
+
+        except Exception as e2:
+            self._log(f"前台截图也失败: {e2}", "ERROR")
             return None
 
     def capture_full_screen(self) -> Optional[np.ndarray]:
-        """后台捕获完整客户区画面"""
+        """后台捕获完整客户区画面 - BitBlt优先，黑屏则前台截图"""
         if not self.client_rect:
             return None
 
         try:
+            # 方法1: BitBlt
             client_width = self.client_rect[2] - self.client_rect[0]
             client_height = self.client_rect[3] - self.client_rect[1]
 
             hwndDC = win32gui.GetWindowDC(self.hwnd)
             mfcDC = win32ui.CreateDCFromHandle(hwndDC)
             saveDC = mfcDC.CreateCompatibleDC()
-
             saveBitMap = win32ui.CreateBitmap()
             saveBitMap.CreateCompatibleBitmap(mfcDC, client_width, client_height)
             saveDC.SelectObject(saveBitMap)
-
-            # 使用BitBlt进行截图（比PrintWindow更可靠）
             saveDC.BitBlt((0, 0), (client_width, client_height), mfcDC, (0, 0), win32con.SRCCOPY)
 
             bmpinfo = saveBitMap.GetInfo()
@@ -477,10 +485,31 @@ class Mir2AutoBotV2:
             mfcDC.DeleteDC()
             win32gui.ReleaseDC(self.hwnd, hwndDC)
 
-            return img
+            if img.mean() > 20:
+                return img
+
+            self._log("BitBlt全屏截图黑屏，尝试前台截图...", "WARNING")
 
         except Exception as e:
-            self._log(f"Full screen capture failed: {e}", "ERROR")
+            self._log(f"BitBlt全屏截图失败: {e}，尝试前台截图...", "WARNING")
+
+        # 方法2: 前台截图
+        try:
+            from PIL import ImageGrab
+            client_left, client_top = win32gui.ClientToScreen(self.hwnd, (0, 0))
+            client_width = self.client_rect[2] - self.client_rect[0]
+            client_height = self.client_rect[3] - self.client_rect[1]
+            screenshot = ImageGrab.grab(bbox=(
+                client_left, client_top,
+                client_left + client_width,
+                client_top + client_height
+            ))
+            img = np.array(screenshot)
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            return img
+
+        except Exception as e2:
+            self._log(f"前台全屏截图失败: {e2}", "ERROR")
             return None
 
 
@@ -521,15 +550,16 @@ class Mir2AutoBotV2:
             vk_code = win32api.VkKeyScan(teleport_key)
             vk_code = vk_code & 0xFF
 
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk_code, 0)
+            # keybd_event 模拟真实按键（PostMessage很多私服收不到）
+            ctypes.windll.user32.keybd_event(vk_code, 0, 0, 0)
             time.sleep(0.05)
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYUP, vk_code, 0)
+            ctypes.windll.user32.keybd_event(vk_code, 0, 2, 0)
 
             self.last_teleport_time = current_time
             self.stats['teleports_used'] += 1
-            self._log(f"Teleport used (key: {teleport_key})")
+            self._log(f"传送石已使用 (键: {teleport_key})")
         except Exception as e:
-            self._log(f"Teleport failed: {e}", "ERROR")
+            self._log(f"传送失败: {e}", "ERROR")
 
     def run(self):
         """启动挂机脚本（自动找窗口）"""
@@ -617,6 +647,35 @@ class Mir2AutoBotV2:
         # 职业技能
         if self.class_skills.enabled:
             self.class_skills.tick()
+
+    def update_stats(self):
+        """更新统计信息（智能引擎调用）"""
+        if not self.stats['start_time']:
+            self.stats['start_time'] = datetime.now()
+        if self.stats['start_time']:
+            elapsed = (datetime.now() - self.stats['start_time']).total_seconds()
+            if elapsed > 0 and int(elapsed) % 60 == 0:
+                self._log(
+                    f"运行时间: {int(elapsed // 60)}分钟 | "
+                    f"检测次数: {self.stats['detection_runs']} | "
+                    f"黄点检测: {self.stats['yellow_dots_detected']} | "
+                    f"传送: {self.stats['teleports_used']}"
+                )
+                if int(elapsed) % 900 == 0:
+                    self._cleanup_debug_dir()
+
+    def _cleanup_debug_dir(self):
+        """清理debug目录"""
+        import shutil
+        debug_dir = os.path.join(SCRIPT_DIR, 'debug')
+        if os.path.exists(debug_dir):
+            try:
+                for f in os.listdir(debug_dir):
+                    fp = os.path.join(debug_dir, f)
+                    if os.path.isfile(fp) and f.endswith(('.jpg', '.png', '.bmp')):
+                        os.remove(fp)
+            except:
+                pass
 
     def stop(self):
         """停止挂机脚本"""
@@ -821,6 +880,10 @@ class BotGUI:
         
         # 角色信息读取器
         self.character_info = CharacterInfo()
+
+        # 地图检测器（用于GUI侧的截图记录模板）
+        from map_detector import MapDetector
+        self.map_detector = MapDetector()
         
         # 为每个实例创建独立的配置文件
         self.config_file = self._get_instance_config_file()
@@ -829,6 +892,18 @@ class BotGUI:
         # 窗口显示/隐藏状态
         self.window_visible = True
         self.toggle_hotkey = 'F9'  # 呼出/隐藏热键
+
+        # 窗口绑定状态
+        self._window_bound = False
+        self._bind_hwnd = None
+        self._bind_title = ""
+
+        # 实时画面预览
+        self._preview_enabled = False
+        self._preview_photo = None  # 保持PhotoImage引用
+        self._game_embedded = False
+        self._original_parent = None
+        self._original_window_style = None
 
         self._create_widgets()
         
@@ -891,9 +966,12 @@ class BotGUI:
         self.window_combo = ttk.Combobox(window_row, width=40, state='readonly')
         self.window_combo.pack(side=tk.LEFT, padx=5)
         ttk.Button(window_row, text="刷新", command=self.refresh_windows, width=6).pack(side=tk.LEFT, padx=5)
+        ttk.Button(window_row, text="绑定", command=self.bind_window, width=6).pack(side=tk.LEFT, padx=5)
 
         self.window_info_label = ttk.Label(window_frame, text="未选择窗口", font=('Arial', 9))
         self.window_info_label.pack(anchor=tk.W, padx=5)
+        self.window_bind_label = ttk.Label(window_frame, text="", font=('Arial', 8), foreground='#888')
+        self.window_bind_label.pack(anchor=tk.W, padx=5)
 
         # ===== 控制按钮 =====
         control_frame = ttk.Frame(main_frame)
@@ -996,6 +1074,13 @@ class BotGUI:
         self.minimap_label = ttk.Label(status_frame, text="小地图: 未设置", font=('Arial', 9))
         self.minimap_label.pack(anchor=tk.W)
 
+        # 地图检测行
+        map_row = ttk.Frame(status_frame)
+        map_row.pack(fill=tk.X, pady=1)
+        self.map_name_label = ttk.Label(map_row, text="当前地图: 未检测", font=('Arial', 9))
+        self.map_name_label.pack(side=tk.LEFT, padx=2)
+        ttk.Button(map_row, text="截图记录", command=self.capture_map_template, width=10).pack(side=tk.RIGHT, padx=5)
+
         # 角色信息
         char_frame = ttk.Frame(status_frame)
         char_frame.pack(fill=tk.X, pady=2)
@@ -1003,6 +1088,23 @@ class BotGUI:
         self.char_info_label.pack(side=tk.LEFT)
         self.calibrate_char_btn = ttk.Button(char_frame, text="校准信息", command=self.calibrate_character_info, width=10)
         self.calibrate_char_btn.pack(side=tk.RIGHT, padx=5)
+
+        # ===== 游戏窗口嵌入 =====
+        embed_frame = ttk.LabelFrame(main_frame, text="游戏画面（嵌入模式）", padding="3")
+        # 用Frame作为嵌入容器
+        self.embed_container = tk.Frame(embed_frame, bg='#000000',
+                                        width=620, height=400)
+        self.embed_container.pack(fill=tk.BOTH, expand=True, pady=2)
+        self.embed_container.pack_propagate(False)
+
+        embed_ctl = ttk.Frame(embed_frame)
+        embed_ctl.pack(fill=tk.X)
+        self.embed_btn = ttk.Button(embed_ctl, text="嵌入游戏",
+                                    command=self.toggle_embed, width=12)
+        self.embed_btn.pack(side=tk.LEFT, padx=5)
+        self.embed_info = ttk.Label(embed_ctl, text="绑定窗口后可嵌入",
+                                    font=('Arial', 8), foreground='#888')
+        self.embed_info.pack(side=tk.LEFT, padx=5)
 
         # ===== 运行日志 =====
         log_frame = ttk.LabelFrame(main_frame, text="运行日志", padding="5")
@@ -1078,6 +1180,62 @@ class BotGUI:
             self.window_combo.set('')
             self.window_info_label.config(text="未找到游戏窗口")
             self.log("未找到游戏窗口", "WARNING")
+        
+        self._window_bound = False
+        self.window_bind_label.config(text="")
+
+    def bind_window(self):
+        """绑定选中的窗口 - 验证窗口有效性并测试截图"""
+        try:
+            selection = self.window_combo.current()
+            if selection < 0 or selection >= len(self.found_windows):
+                messagebox.showwarning("提示", "请先选择游戏窗口")
+                return
+
+            hwnd, title = self.found_windows[selection]
+            self.log(f"正在绑定窗口: {title}")
+            
+            # 验证窗口
+            if not win32gui.IsWindow(hwnd):
+                self.log("窗口句柄无效，请重新刷新", "ERROR")
+                messagebox.showerror("绑定失败", "窗口句柄无效，请点击「刷新」重新扫描")
+                return
+
+            # 获取窗口信息
+            client_rect = win32gui.GetClientRect(hwnd)
+            client_w = client_rect[2] - client_rect[0]
+            client_h = client_rect[3] - client_rect[1]
+            
+            # 测试截图
+            from PIL import ImageGrab
+            import cv2, numpy as np
+            client_left, client_top = win32gui.ClientToScreen(hwnd, (0, 0))
+            screenshot = ImageGrab.grab(bbox=(client_left, client_top, client_left+client_w, client_top+client_h))
+            img = np.array(screenshot)
+            brightness = img.mean()
+            
+            info_text = f"✅ 绑定成功 | {client_w}x{client_h} | 截图亮度: {brightness:.0f}"
+            if brightness < 20:
+                info_text += " ⚠️ 可能黑屏"
+            else:
+                info_text += " ✅ 正常"
+
+            self.window_info_label.config(text=f"HWND: {hwnd} | {client_w}x{client_h}")
+            self.window_bind_label.config(text=info_text, foreground='green' if brightness > 20 else 'orange')
+            self._window_bound = True
+            self.log(info_text)
+
+            # 保存绑定信息
+            self._bind_hwnd = hwnd
+            self._bind_title = title
+
+        except Exception as e:
+            import traceback
+            err = f"绑定失败: {e}"
+            self.log(err, "ERROR")
+            self.window_bind_label.config(text=f"❌ {err}", foreground='red')
+            self._window_bound = False
+            messagebox.showerror("绑定失败", str(e))
 
     def _on_window_selected(self, event=None):
         """窗口选择变化时的回调"""
@@ -1122,65 +1280,71 @@ class BotGUI:
 
     def start_bot(self):
         """启动机器人"""
-        selection = self.window_combo.current()
-        if selection < 0 or selection >= len(self.found_windows):
-            messagebox.showwarning("提示", "请先选择游戏窗口")
-            return
+        try:
+            if not self._window_bound or self._bind_hwnd is None:
+                messagebox.showinfo("提示", "请先点击「绑定」按钮确认窗口")
+                return
 
-        hwnd, title = self.found_windows[selection]
-        self.log(f"启动挂机，窗口: {title}")
-        
-        # 创建bot实例
-        self.bot = Mir2AutoBotV2(config_file=self.config_file, log_callback=self.log)
+            hwnd, title = self._bind_hwnd, self._bind_title
+            self.log(f"启动挂机，窗口: {title}")
+            
+            # 创建bot实例
+            self.bot = Mir2AutoBotV2(config_file=self.config_file, log_callback=self.log)
 
-        # 设置选中的窗口
-        self.bot.hwnd = hwnd
-        self.bot.window_title = title
-        self.bot._init_window_info()
+            # 设置选中的窗口
+            self.bot.hwnd = hwnd
+            self.bot.window_title = title
+            self.bot._init_window_info()
 
-        # 连接角色信息读取器
-        self.character_info.set_hwnd(hwnd)
-        # 自动校准血条位置
-        self.character_info.auto_calibrate()
-        info = self.character_info.update()
-        self.char_info_label.config(text=info.get('char_display', '角色信息已连接'))
-        self.log(f"角色信息已连接: {self.character_info.get_info_text()}")
+            # 连接角色信息读取器
+            self.character_info.set_hwnd(hwnd)
+            # 自动校准血条位置
+            self.character_info.auto_calibrate()
+            info = self.character_info.update()
+            self.char_info_label.config(text=info.get('char_display', '角色信息已连接'))
+            self.log(f"角色信息已连接: {self.character_info.get_info_text()}")
 
-        # 传递快速设置
-        self.bot.config.set('Teleport', 'teleport_key', self.teleport_key_var.get())
-        self.bot.config.set('Teleport', 'cooldown', self.cooldown_var.get())
-        self.bot.config.set('Detection', 'detection_interval', self.interval_var.get())
+            # 传递快速设置
+            self.bot.config.set('Teleport', 'teleport_key', self.teleport_key_var.get())
+            self.bot.config.set('Teleport', 'cooldown', self.cooldown_var.get())
+            self.bot.config.set('Detection', 'detection_interval', self.interval_var.get())
 
-        # 传递功能开关设置
-        self.bot.npc_teleporter.enabled = self.npc_enabled_var.get()
-        self.bot.npc_teleporter.find_npc_mode = self.npc_mode_var.get()
-        self.bot.npc_teleporter.target_dungeon_row = int(self.npc_row_var.get())
+            # 传递功能开关设置
+            self.bot.npc_teleporter.enabled = self.npc_enabled_var.get()
+            self.bot.npc_teleporter.find_npc_mode = self.npc_mode_var.get()
+            self.bot.npc_teleporter.target_dungeon_row = int(self.npc_row_var.get())
 
-        self.bot.monster_hunter.enabled = self.hunt_enabled_var.get()
+            self.bot.monster_hunter.enabled = self.hunt_enabled_var.get()
 
-        self.bot.recycler.enabled = self.recycle_enabled_var.get()
-        self.bot.recycler.bag_key = self.recycle_bag_key_var.get()
+            self.bot.recycler.enabled = self.recycle_enabled_var.get()
+            self.bot.recycler.bag_key = self.recycle_bag_key_var.get()
 
-        self.bot.supply.enabled = self.supply_enabled_var.get()
+            self.bot.supply.enabled = self.supply_enabled_var.get()
 
-        self.bot.class_skills.enabled = self.skill_enabled_var.get()
-        self.bot.class_skills.class_name = self.class_var.get()
+            self.bot.class_skills.enabled = self.skill_enabled_var.get()
+            self.bot.class_skills.class_name = self.class_var.get()
 
-        self.bot.auto_nav.enabled = self.nav_enabled_var.get()
+            self.bot.auto_nav.enabled = self.nav_enabled_var.get()
 
-        self.bot.running = True
-        self.bot.stats['start_time'] = datetime.now()
-        
-        self.bot_thread = threading.Thread(target=self.bot.run_with_window, daemon=True)
-        self.bot_thread.start()
+            self.bot.running = True
+            self.bot.stats['start_time'] = datetime.now()
+            
+            self.bot_thread = threading.Thread(target=self.bot.run_with_window, daemon=True)
+            self.bot_thread.start()
 
-        self.start_btn.config(state=tk.DISABLED)
-        self.stop_btn.config(state=tk.NORMAL)
-        self.pause_btn.config(state=tk.NORMAL)
-        self.adjust_btn.config(state=tk.DISABLED)
-        self.update_status("运行中")
+            self.start_btn.config(state=tk.DISABLED)
+            self.stop_btn.config(state=tk.NORMAL)
+            self.pause_btn.config(state=tk.NORMAL)
+            self.adjust_btn.config(state=tk.DISABLED)
+            self.update_status("运行中")
 
-        self._update_stats_loop()
+            self._update_stats_loop()
+
+        except Exception as e:
+            import traceback
+            err_msg = f"启动失败: {e}\n{traceback.format_exc()}"
+            self.log(err_msg, "ERROR")
+            messagebox.showerror("启动错误", str(e))
 
     def stop_bot(self):
         """停止挂机"""
@@ -1311,7 +1475,133 @@ class BotGUI:
                     self._cleanup_debug_dir()
             
             self.root.after(1000, self._update_stats_loop)
-    
+
+    def toggle_embed(self):
+        """切换游戏窗口嵌入/分离"""
+        try:
+            if self._game_embedded:
+                self._unembed_game()
+            else:
+                self._embed_game()
+        except Exception as e:
+            self.log(f"嵌入失败: {e}", "ERROR")
+            messagebox.showerror("嵌入失败", str(e))
+
+    def _embed_game(self):
+        """嵌入游戏窗口到GUI"""
+        if not self._window_bound or self._bind_hwnd is None:
+            messagebox.showinfo("提示", "请先「绑定」窗口")
+            return
+        hwnd = self._bind_hwnd
+        if not win32gui.IsWindow(hwnd):
+            messagebox.showerror("错误", "窗口已关闭，请重新绑定")
+            return
+
+        # 记录原始状态
+        self._original_parent = win32gui.GetParent(hwnd)
+        self._original_window_style = win32gui.GetWindowLong(hwnd, -16)  # GWL_STYLE
+
+        # 获取容器Frame的HWND
+        container_id = self.embed_container.winfo_id()
+        import ctypes
+
+        # 设置游戏窗口为子窗口
+        new_style = 0x50000000  # WS_VISIBLE | WS_CHILD
+        ctypes.windll.user32.SetWindowLongW(hwnd, -16, new_style)
+        ctypes.windll.user32.SetParent(hwnd, container_id)
+
+        # 调整大小
+        ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0,
+                                           self.embed_container.winfo_width(),
+                                           self.embed_container.winfo_height(),
+                                           0x0040)  # SWP_NOZORDER
+
+        self._game_embedded = True
+        self.embed_btn.config(text="分离窗口")
+        self.embed_info.config(text="✅ 已嵌入", foreground='green')
+        self.log(f"✅ 游戏窗口已嵌入GUI")
+
+    def _unembed_game(self):
+        """分离游戏窗口恢复原状"""
+        if not self._bind_hwnd or not self._original_parent:
+            return
+        hwnd = self._bind_hwnd
+        import ctypes
+
+        # 恢复原始父窗口
+        ctypes.windll.user32.SetParent(hwnd, self._original_parent)
+        # 恢复原始窗口样式
+        if self._original_window_style:
+            ctypes.windll.user32.SetWindowLongW(hwnd, -16, self._original_window_style)
+
+        # 恢复窗口大小和位置
+        ctypes.windll.user32.SetWindowPos(hwnd, 0, 100, 100, 800, 600, 0x0040)
+        ctypes.windll.user32.ShowWindow(hwnd, 1)  # SW_SHOWNORMAL
+
+        self._game_embedded = False
+        self.embed_btn.config(text="嵌入游戏")
+        self.embed_info.config(text="已分离", foreground='#888')
+        self.log("游戏窗口已分离")
+
+    def capture_map_template(self):
+        """截图记录当前地图模板"""
+        try:
+            if not self._window_bound or self._bind_hwnd is None:
+                messagebox.showinfo("提示", "请先「绑定」窗口")
+                return
+            from tkinter import simpledialog
+            map_name = simpledialog.askstring("截图记录地图", "请输入当前地图名称：",
+                                              parent=self.root)
+            if not map_name:
+                return
+            from PIL import ImageGrab
+            import numpy as np
+            client_left, client_top = win32gui.ClientToScreen(self._bind_hwnd, (0, 0))
+            client_rect = win32gui.GetClientRect(self._bind_hwnd)
+            cw = client_rect[2] - client_rect[0]
+            ch = client_rect[3] - client_rect[1]
+            screenshot = ImageGrab.grab(bbox=(client_left, client_top,
+                                               client_left+cw, client_top+ch))
+            img = np.array(screenshot)
+            import cv2
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            if self.map_detector.save_map_template(map_name, img):
+                self.log(f"✅ 已记录地图模板: {map_name}")
+                self.map_name_label.config(text=f"当前地图: {map_name}")
+                messagebox.showinfo("成功", f"地图「{map_name}」已记录！\n"
+                                    f"之后在此地图会自动识别。\n\n"
+                                    f"换地图时再点「截图记录」添加其他地图。")
+            else:
+                self.log("截图失败", "ERROR")
+        except Exception as e:
+            err = f"截图记录地图失败: {e}"
+            self.log(err, "ERROR")
+            messagebox.showerror("错误", str(e))
+
+    def detect_current_map(self):
+        """检测当前地图（绑定窗口后调用）"""
+        try:
+            if not self._window_bound or self._bind_hwnd is None:
+                return "未绑定"
+            from PIL import ImageGrab
+            import numpy as np
+            import cv2
+            client_left, client_top = win32gui.ClientToScreen(self._bind_hwnd, (0, 0))
+            client_rect = win32gui.GetClientRect(self._bind_hwnd)
+            cw = client_rect[2] - client_rect[0]
+            ch = client_rect[3] - client_rect[1]
+            screenshot = ImageGrab.grab(bbox=(client_left, client_top,
+                                               client_left+cw, client_top+ch))
+            img = np.array(screenshot)
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            map_name = self.map_detector.detect_map_name(img)
+            if map_name:
+                self.map_name_label.config(text=f"当前地图: {map_name}")
+            return map_name or "未知"
+        except Exception as e:
+            self.log(f"检测地图失败: {e}", "WARNING")
+            return "检测失败"
+
     def calibrate_character_info(self):
         """校准角色信息（血条位置）"""
         selection = self.window_combo.current()
@@ -1358,6 +1648,8 @@ class BotGUI:
 
     def on_closing(self):
         """关闭窗口"""
+        if self._game_embedded:
+            self._unembed_game()
         self.stop_bot()
         keyboard.unhook_all()
         self.root.destroy()

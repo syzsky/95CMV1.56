@@ -1,51 +1,32 @@
 # -*- coding: utf-8 -*-
 """
-地图名检测模块 - OCR识别当前地图名，用于白名单/黑名单判断
-功能：截取游戏画面中地图名区域，使用OCR识别地图名称
-      如果当前地图在"不飞随机"列表中，则跳过传送
+地图名检测模块 - 模板匹配方式（无需Tesseract OCR）
+用户首次在某地图点击"截图记录"，之后自动匹配
 """
 
 import logging
-import numpy as np
+import os
 import cv2
-from typing import List, Optional
+import numpy as np
+from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MAP_TEMPLATE_DIR = os.path.join(SCRIPT_DIR, 'map_templates')
+
 
 class MapDetector:
-    """地图名检测器 - 使用OCR识别当前地图名称"""
+    """地图名检测器 - 使用模板匹配识别当前地图名称"""
 
     def __init__(self):
-        # 地图名区域（相对于客户区） 默认在左上角
         self.map_name_region = (300, 5, 200, 30)  # (x, y, width, height)
-        # 不飞随机的安全地图列表
         self.no_teleport_maps: List[str] = ['盟重省', '安全区', '比奇省']
-        # 是否启用
         self.enabled = False
-        # 是否安装了Tesseract
-        self.tesseract_available = False
-        # 上次识别到的地图名
         self.last_map_name = ""
-        self._check_tesseract()
-
-    def _check_tesseract(self):
-        """检查Tesseract是否可用"""
-        try:
-            import pytesseract
-            # 尝试获取版本
-            version = pytesseract.get_tesseract_version()
-            if version:
-                # 检查中文语言包
-                langs = pytesseract.get_languages()
-                self.tesseract_available = 'chi_sim' in langs
-                if not self.tesseract_available:
-                    logger.warning("Tesseract未安装中文语言包(chi_sim)，地图检测功能不可用")
-                else:
-                    logger.info(f"Tesseract v{version} 可用，地图检测功能已就绪")
-        except Exception as e:
-            self.tesseract_available = False
-            logger.warning(f"Tesseract不可用，地图检测功能将跳过: {e}")
+        # 加载已保存的地图模板
+        self._templates: dict = {}  # {map_name: template_img}
+        self._load_templates()
 
     def set_region(self, x: int, y: int, width: int, height: int):
         """设置地图名检测区域"""
@@ -55,74 +36,110 @@ class MapDetector:
         """设置不飞随机的地图列表"""
         self.no_teleport_maps = [m.strip() for m in maps if m.strip()]
 
-    def detect_map_name(self, full_screen: np.ndarray) -> Optional[str]:
-        """检测当前地图名称
+    def _load_templates(self):
+        """加载已保存的地图模板"""
+        self._templates = {}
+        if not os.path.exists(MAP_TEMPLATE_DIR):
+            os.makedirs(MAP_TEMPLATE_DIR, exist_ok=True)
+            return
+        for fname in os.listdir(MAP_TEMPLATE_DIR):
+            if fname.endswith('.png'):
+                map_name = fname[:-4]  # 去掉.png
+                path = os.path.join(MAP_TEMPLATE_DIR, fname)
+                template = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+                if template is not None:
+                    self._templates[map_name] = template
+                    logger.info(f"加载地图模板: {map_name}")
+
+    def save_map_template(self, map_name: str, full_screen: np.ndarray) -> bool:
+        """保存当前地图的模板截图"""
+        os.makedirs(MAP_TEMPLATE_DIR, exist_ok=True)
+        x, y, w, h = self.map_name_region
+        h_f, w_f = full_screen.shape[:2]
+        x = max(0, min(x, w_f - 1))
+        y = max(0, min(y, h_f - 1))
+        w = min(w, w_f - x)
+        h = min(h, h_f - y)
+        if w <= 0 or h <= 0:
+            return False
+        region = full_screen[y:y+h, x:x+w]
+        gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+        path = os.path.join(MAP_TEMPLATE_DIR, f"{map_name}.png")
+        cv2.imwrite(path, gray)
+        self._templates[map_name] = gray
+        logger.info(f"已保存地图模板: {map_name}")
+        return True
+
+    def delete_map_template(self, map_name: str):
+        """删除地图模板"""
+        path = os.path.join(MAP_TEMPLATE_DIR, f"{map_name}.png")
+        if os.path.exists(path):
+            os.remove(path)
+        self._templates.pop(map_name, None)
+
+    def get_saved_maps(self) -> List[str]:
+        """获取已保存的地图列表"""
+        return list(self._templates.keys())
+
+    def detect_map_name(self, full_screen: np.ndarray,
+                        threshold: float = 0.7) -> Optional[str]:
+        """检测当前地图名称（模板匹配）
 
         Args:
             full_screen: 完整游戏画面（BGR格式）
+            threshold: 匹配阈值（0~1），越高越严格
 
         Returns:
-            识别到的地图名，失败返回None
+            匹配到的地图名，未匹配返回None
         """
-        if not self.enabled or not self.tesseract_available:
+        if not self.enabled or not self._templates:
             return None
 
         try:
-            import pytesseract
-
-            # 裁剪地图名区域
             x, y, w, h = self.map_name_region
             h_f, w_f = full_screen.shape[:2]
-            # 确保不越界
             x = max(0, min(x, w_f - 1))
             y = max(0, min(y, h_f - 1))
             w = min(w, w_f - x)
             h = min(h, h_f - y)
-
             if w <= 0 or h <= 0:
                 return None
 
             region = full_screen[y:y+h, x:x+w]
-
-            # 图像预处理 - 提高OCR识别率
             gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
-            # 放大图像（小文字识别需要）
-            gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-            # 二值化
-            _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-            # OCR识别 - 只识别中文
-            custom_config = r'--psm 7 -c tessedit_char_whitelist=省安市城区县镇乡村路大道口门湾河山岛洞谷关岭'
-            text = pytesseract.image_to_string(binary, lang='chi_sim', config=custom_config)
+            best_match = None
+            best_score = 0
 
-            # 清理识别结果
-            map_name = text.strip().replace('\n', '').replace(' ', '')
-            if map_name:
-                self.last_map_name = map_name
-                logger.info(f"检测到地图: {map_name}")
-                return map_name
+            for map_name, template in self._templates.items():
+                # 模板大小可能不同，需要缩放
+                t_h, t_w = template.shape
+                if t_h == 0 or t_w == 0:
+                    continue
+                # 缩放到当前区域大小
+                resized = cv2.resize(gray, (t_w, t_h))
+                result = cv2.matchTemplate(resized, template, cv2.TM_CCOEFF_NORMED)
+                _, score, _, _ = cv2.minMaxLoc(result)
+
+                if score > best_score:
+                    best_score = score
+                    best_match = map_name
+
+            if best_match and best_score >= threshold:
+                self.last_map_name = best_match
+                logger.info(f"检测到地图: {best_match} (匹配度: {best_score:.2f})")
+                return best_match
 
             return None
 
-        except ImportError:
-            self.tesseract_available = False
-            return None
         except Exception as e:
             logger.debug(f"地图名检测失败: {e}")
             return None
 
     def is_safe_map(self, map_name: str) -> bool:
-        """判断是否是安全地图（不飞随机）
-
-        Args:
-            map_name: 检测到的地图名称
-
-        Returns:
-            True=安全地图，跳过传送
-        """
+        """判断是否是安全地图（不飞随机）"""
         if not map_name:
             return False
-
         for safe_map in self.no_teleport_maps:
             if safe_map in map_name or map_name in safe_map:
                 logger.info(f"当前地图 [{map_name}] 在保护列表中，跳过传送")
@@ -130,17 +147,9 @@ class MapDetector:
         return False
 
     def should_skip_teleport(self, full_screen: np.ndarray) -> bool:
-        """综合判断是否应该跳过传送
-
-        Args:
-            full_screen: 完整游戏画面
-
-        Returns:
-            True=跳过本次传送
-        """
-        if not self.enabled or not self.tesseract_available:
+        """综合判断是否应该跳过传送"""
+        if not self.enabled or not self._templates:
             return False
-
         map_name = self.detect_map_name(full_screen)
         if map_name:
             return self.is_safe_map(map_name)

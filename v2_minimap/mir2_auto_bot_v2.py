@@ -478,7 +478,7 @@ class Mir2AutoBotV2:
         cv2.imwrite(os.path.join(debug_dir, f'detection_{timestamp}.jpg'), debug_img)
 
     def use_teleport(self):
-        """使用随机传送石 - 使用PostMessage发送按键"""
+        """使用随机传送石 - 使用keybd_event模拟真实按键"""
         if not self.config.getboolean('Teleport', 'enabled', fallback=True):
             return
 
@@ -491,14 +491,13 @@ class Mir2AutoBotV2:
         teleport_key = self.config.get('Teleport', 'teleport_key', fallback='2')
 
         try:
-            # 将按键字符转换为虚拟键码
             vk_code = win32api.VkKeyScan(teleport_key)
             vk_code = vk_code & 0xFF
 
-            # 使用PostMessage向窗口发送按键消息
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk_code, 0)
+            # keybd_event 模拟真实按键（PostMessage很多私服收不到）
+            ctypes.windll.user32.keybd_event(vk_code, 0, 0, 0)
             time.sleep(0.05)
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYUP, vk_code, 0)
+            ctypes.windll.user32.keybd_event(vk_code, 0, 2, 0)
 
             self.last_teleport_time = current_time
             self.stats['teleports_used'] += 1
@@ -506,6 +505,7 @@ class Mir2AutoBotV2:
 
         except Exception as e:
             logger.error(f"使用传送石失败: {e}")
+
 
     def update_stats(self):
         """更新统计信息"""

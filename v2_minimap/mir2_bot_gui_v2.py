@@ -1108,20 +1108,6 @@ class BotGUI:
         self.calibrate_char_btn = ttk.Button(char_frame, text="校准信息", command=self.calibrate_character_info, width=10)
         self.calibrate_char_btn.pack(side=tk.RIGHT, padx=5)
 
-        # ===== 游戏画面预览（实时截图） =====
-        embed_frame = ttk.LabelFrame(main_frame, text="游戏画面预览（实时）", padding="3")
-        embed_frame.pack(fill=tk.X, pady=3)
-
-        self.game_preview_label = ttk.Label(embed_frame, text="绑定窗口后显示实时画面")
-        self.game_preview_label.pack(fill=tk.X, pady=2)
-
-        embed_ctl = ttk.Frame(embed_frame)
-        embed_ctl.pack(fill=tk.X)
-        self.preview_btn = ttk.Button(embed_ctl, text="开始预览", command=self.toggle_preview, width=12)
-        self.preview_btn.pack(side=tk.LEFT, padx=5)
-        self.preview_info = ttk.Label(embed_ctl, text="绑定窗口后可预览", font=('Arial', 8), foreground='#888')
-        self.preview_info.pack(side=tk.LEFT, padx=5)
-
         # ===== 运行日志 =====
         log_frame = ttk.LabelFrame(main_frame, text="运行日志", padding="5")
         log_frame.pack(fill=tk.BOTH, expand=True, pady=3)
@@ -1491,50 +1477,6 @@ class BotGUI:
                     self._cleanup_debug_dir()
             
             self.root.after(1000, self._update_stats_loop)
-
-    def toggle_preview(self):
-        """切换游戏画面实时预览"""
-        if getattr(self, '_preview_running', False):
-            self._preview_running = False
-            self.preview_btn.config(text="开始预览")
-            self.preview_info.config(text="已停止", foreground='#888')
-            self.game_preview_label.config(text="预览已停止", image='')
-        else:
-            if not self.bot or not self.bot.hwnd:
-                messagebox.showinfo("提示", "请先「绑定」窗口")
-                return
-            self._preview_running = True
-            self.preview_btn.config(text="停止预览")
-            self.preview_info.config(text="✅ 实时预览中", foreground='green')
-            self._preview_loop()
-
-    def _preview_loop(self):
-        """定时截图刷新到预览Label"""
-        if not getattr(self, '_preview_running', False):
-            return
-        try:
-            if self.bot and self.bot.hwnd:
-                # 截图游戏窗口，临时移开GUI避免截到自己
-                img = screen_capture.capture_client(self.bot.hwnd)
-                if img is not None:
-                    # 缩放到预览区域大小
-                    h, w = img.shape[:2]
-                    max_w, max_h = 400, 200
-                    scale = min(max_w / w, max_h / h, 1.0)
-                    new_w, new_h = int(w * scale), int(h * scale)
-                    img_small = cv2.resize(img, (new_w, new_h))
-                    # 转成Tkinter能显示的格式
-                    img_rgb = cv2.cvtColor(img_small, cv2.COLOR_BGR2RGB)
-                    pil_img = Image.fromarray(img_rgb)
-                    self._preview_img = ImageTk.PhotoImage(pil_img)  # 保持引用防GC
-                    self.game_preview_label.config(image=self._preview_img, text='')
-                else:
-                    self.game_preview_label.config(text="截图失败", image='')
-        except Exception as e:
-            self.game_preview_label.config(text=f"预览错误: {e}", image='')
-        # 每200ms刷新一次
-        if hasattr(self, 'root'):
-            self.root.after(200, self._preview_loop)
 
     def toggle_embed(self):
         """切换游戏窗口嵌入/分离"""

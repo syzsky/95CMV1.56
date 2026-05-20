@@ -6,9 +6,7 @@
 
 import time
 import logging
-import win32gui
-import win32con
-import win32api
+from . import key_sender
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -110,15 +108,8 @@ class ClassSkillManager:
             self.update_skill_config(self._potions, name, key, interval, enabled)
 
     def send_key(self, key_char: str):
-        if not self.hwnd:
-            return
-        try:
-            vk_code = win32api.VkKeyScan(key_char) & 0xFF
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk_code, 0)
-            time.sleep(0.05)
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYUP, vk_code, 0)
-        except Exception as e:
-            logger.debug(f"按键失败 [{key_char}]: {e}")
+        """前台按键（keybd_event 模拟真实按键）"""
+        key_sender.send_key(key_char, 0.05)
 
     def use_item(self, item_dict: dict, now: float) -> bool:
         if not self.enabled or not self.hwnd:

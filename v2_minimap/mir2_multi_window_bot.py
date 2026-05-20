@@ -8,9 +8,8 @@
 import time
 import keyboard
 import win32gui
-import win32con
-import win32api
-import win32ui
+from . import key_sender
+from . import screen_capture
 import logging
 import configparser
 import os
@@ -18,9 +17,7 @@ import numpy as np
 import cv2
 from datetime import datetime
 from typing import Optional, Tuple, List, Dict
-from PIL import Image
 import threading
-import ctypes
 
 # 获取脚本所在目录
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -132,61 +129,28 @@ class GameWindow:
         self.minimap_region = (x, y, width, height)
 
     def capture_minimap(self) -> Optional[np.ndarray]:
-        """后台捕获小地图 - 使用Win32 API"""
-        if not self.client_rect or not self.minimap_region:
+        """前台截图截取小地图（兼容DirectX）"""
+        if not self.minimap_region:
             return None
 
         try:
-            client_width = self.client_rect[2] - self.client_rect[0]
-            client_height = self.client_rect[3] - self.client_rect[1]
+            # 前台截图
+            full = screen_capture.capture_client(self.hwnd)
+            if full is None:
+                return None
 
-            # 获取窗口DC
-            hwndDC = win32gui.GetWindowDC(self.hwnd)
-            mfcDC = win32ui.CreateDCFromHandle(hwndDC)
-            saveDC = mfcDC.CreateCompatibleDC()
-
-            # 创建位图
-            saveBitMap = win32ui.CreateBitmap()
-            saveBitMap.CreateCompatibleBitmap(mfcDC, client_width, client_height)
-            saveDC.SelectObject(saveBitMap)
-
-            # 使用PrintWindow进行后台截图
-            # PW_CLIENTONLY = 2 - 只截取客户区
-            result = ctypes.windll.user32.PrintWindow(self.hwnd, saveDC.GetSafeHdc(), 2)
-
-            if result:
-                # 转换为numpy数组
-                bmpinfo = saveBitMap.GetInfo()
-                bmpstr = saveBitMap.GetBitmapBits(True)
-                img = np.frombuffer(bmpstr, dtype='uint8')
-                img.shape = (bmpinfo['bmHeight'], bmpinfo['bmWidth'], 4)
-                img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-
-                # 裁剪小地图区域
-                minimap_x, minimap_y, minimap_w, minimap_h = self.minimap_region
-                minimap = img[minimap_y:minimap_y+minimap_h, minimap_x:minimap_x+minimap_w]
-            else:
-                # PrintWindow失败，尝试BitBlt
-                saveDC.BitBlt((0, 0), (client_width, client_height), mfcDC, (0, 0), win32con.SRCCOPY)
-                bmpinfo = saveBitMap.GetInfo()
-                bmpstr = saveBitMap.GetBitmapBits(True)
-                img = np.frombuffer(bmpstr, dtype='uint8')
-                img.shape = (bmpinfo['bmHeight'], bmpinfo['bmWidth'], 4)
-                img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-
-                minimap_x, minimap_y, minimap_w, minimap_h = self.minimap_region
-                minimap = img[minimap_y:minimap_y+minimap_h, minimap_x:minimap_x+minimap_w]
-
-            # 清理资源
-            win32gui.DeleteObject(saveBitMap.GetHandle())
-            saveDC.DeleteDC()
-            mfcDC.DeleteDC()
-            win32gui.ReleaseDC(self.hwnd, hwndDC)
-
+            # 裁剪小地图区域
+            minimap_x, minimap_y, minimap_w, minimap_h = self.minimap_region
+            h, w = full.shape[:2]
+            x1 = max(0, min(minimap_x, w - 1))
+            y1 = max(0, min(minimap_y, h - 1))
+            x2 = min(minimap_x + minimap_w, w)
+            y2 = min(minimap_y + minimap_h, h)
+            minimap = full[y1:y2, x1:x2]
             return minimap
 
         except Exception as e:
-            logger.error(f"[{self.title}] 后台截图失败: {e}")
+            logger.error(f"[{self.title}] 前台截图失败: {e}")
             return None
 
     def detect_players(self) -> bool:
@@ -209,7 +173,7 @@ class GameWindow:
         return False
 
     def teleport(self):
-        """传送 - 使用PostMessage向特定窗口发送按键"""
+        """传送 - 使用keybd_event模拟真实按键"""
         if not self.config.getboolean('Teleport', 'enabled', fallback=True):
             return
 
@@ -220,14 +184,7 @@ class GameWindow:
         teleport_key = self.config.get('Teleport', 'teleport_key', fallback='2')
 
         try:
-            # 将按键字符转换为虚拟键码
-            vk_code = win32api.VkKeyScan(teleport_key)
-            vk_code = vk_code & 0xFF  # 只取低字节
-
-            # 使用PostMessage向特定窗口发送按键消息
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk_code, 0)
-            time.sleep(0.05)
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYUP, vk_code, 0)
+            key_sender.send_key(teleport_key, 0.05)
 
             self.last_teleport_time = current_time
             with self.lock:

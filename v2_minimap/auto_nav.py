@@ -6,9 +6,7 @@
 
 import time
 import logging
-import win32gui
-import win32con
-import win32api
+from . import key_sender
 import numpy as np
 from typing import Optional, List, Tuple
 
@@ -73,15 +71,8 @@ class AutoNavigator:
         self.hwnd = hwnd
 
     def send_key(self, key_char: str, duration: float = 0.1):
-        if not self.hwnd:
-            return
-        try:
-            vk = win32api.VkKeyScan(key_char) & 0xFF
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk, 0)
-            time.sleep(duration)
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYUP, vk, 0)
-        except Exception as e:
-            logger.debug(f"按键[{key_char}]: {e}")
+        """前台按键（keybd_event 模拟真实按键）"""
+        key_sender.send_key(key_char, duration)
 
     def get_routes_for_map(self, map_name: str) -> list:
         routes = []

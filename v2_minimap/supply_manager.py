@@ -8,10 +8,8 @@
 import time
 import logging
 import os
-import win32gui
-import win32con
-import win32api
-import win32ui
+from . import key_sender
+from . import screen_capture
 import numpy as np
 import cv2
 from typing import Optional
@@ -62,7 +60,7 @@ class SupplyManager:
     def set_hwnd(self, hwnd: int):
         self.hwnd = hwnd
         if hwnd:
-            self.client_rect = win32gui.GetClientRect(hwnd)
+            self.client_rect = screen_capture.get_client_rect(hwnd)
 
     def load_templates(self) -> bool:
         all_ok = True
@@ -80,31 +78,8 @@ class SupplyManager:
         return all_ok
 
     def _capture_client(self) -> Optional[np.ndarray]:
-        if not self.hwnd or not self.client_rect:
-            return None
-        try:
-            cw = self.client_rect[2] - self.client_rect[0]
-            ch = self.client_rect[3] - self.client_rect[1]
-            hwndDC = win32gui.GetWindowDC(self.hwnd)
-            mfcDC = win32ui.CreateDCFromHandle(hwndDC)
-            saveDC = mfcDC.CreateCompatibleDC()
-            saveBitMap = win32ui.CreateBitmap()
-            saveBitMap.CreateCompatibleBitmap(mfcDC, cw, ch)
-            saveDC.SelectObject(saveBitMap)
-            saveDC.BitBlt((0, 0), (cw, ch), mfcDC, (0, 0), win32con.SRCCOPY)
-            bmpinfo = saveBitMap.GetInfo()
-            bmpstr = saveBitMap.GetBitmapBits(True)
-            img = np.frombuffer(bmpstr, dtype='uint8')
-            img.shape = (bmpinfo['bmHeight'], bmpinfo['bmWidth'], 4)
-            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-            win32gui.DeleteObject(saveBitMap.GetHandle())
-            saveDC.DeleteDC()
-            mfcDC.DeleteDC()
-            win32gui.ReleaseDC(self.hwnd, hwndDC)
-            return img
-        except Exception as e:
-            logger.debug(f"截图失败: {e}")
-            return None
+        """前台截图（兼容DirectX）"""
+        return screen_capture.capture_client(self.hwnd)
 
     def _find_template(self, screen: np.ndarray, name: str, threshold: float = 0.8):
         template = self._templates.get(name)
@@ -122,41 +97,12 @@ class SupplyManager:
             return None
 
     def _send_key(self, key_char: str):
-        if not self.hwnd:
-            return
-        try:
-            if key_char.startswith('F') and key_char[1:].isdigit():
-                f_num = int(key_char[1:])
-                vk = win32con.VK_F1 + f_num - 1
-            elif key_char.isdigit():
-                vk = ord(key_char)
-            elif key_char.upper() == 'ENTER':
-                vk = win32con.VK_RETURN
-            elif key_char.upper() == 'SPACE':
-                vk = win32con.VK_SPACE
-            elif key_char.upper() == 'ESC':
-                vk = win32con.VK_ESCAPE
-            elif len(key_char) == 1 and key_char.isalpha():
-                vk = win32api.VkKeyScan(key_char.upper()) & 0xFF
-            else:
-                return
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk, 0)
-            time.sleep(0.05)
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYUP, vk, 0)
-        except:
-            pass
+        """前台按键（keybd_event）"""
+        key_sender.send_key(key_char, 0.05)
 
     def _click_at(self, client_x: int, client_y: int):
-        if not self.hwnd:
-            return
-        try:
-            lparam = win32api.MAKELONG(client_x, client_y)
-            win32gui.PostMessage(self.hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lparam)
-            time.sleep(0.05)
-            win32gui.PostMessage(self.hwnd, win32con.WM_LBUTTONUP, 0, lparam)
-            time.sleep(0.3)
-        except:
-            pass
+        """前台鼠标点击（mouse_event）"""
+        key_sender.click_at(self.hwnd, client_x, client_y)
 
     def _click_dialog_row(self, row: int):
         """点击对话框某一行（默认坐标）"""

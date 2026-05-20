@@ -9,12 +9,8 @@
 import time
 import logging
 import os
-import win32gui
-import win32con
-import win32
-import win32api
-import win32con
-import win32ui
+from . import key_sender
+from . import screen_capture
 import numpy as np
 import cv2
 from typing import Optional, List, Tuple
@@ -61,35 +57,11 @@ class NpcTeleporter:
     def set_hwnd(self, hwnd: int):
         self.hwnd = hwnd
         if hwnd:
-            self.client_rect = win32gui.GetClientRect(hwnd)
+            self.client_rect = screen_capture.get_client_rect(hwnd)
 
     def capture_full_screen(self) -> Optional[np.ndarray]:
-        """后台截取游戏窗口全屏（BGR格式）"""
-        if not self.hwnd or not self.client_rect:
-            return None
-        try:
-            cw = self.client_rect[2] - self.client_rect[0]
-            ch = self.client_rect[3] - self.client_rect[1]
-            hwndDC = win32gui.GetWindowDC(self.hwnd)
-            mfcDC = win32ui.CreateDCFromHandle(hwndDC)
-            saveDC = mfcDC.CreateCompatibleDC()
-            saveBitMap = win32ui.CreateBitmap()
-            saveBitMap.CreateCompatibleBitmap(mfcDC, cw, ch)
-            saveDC.SelectObject(saveBitMap)
-            saveDC.BitBlt((0, 0), (cw, ch), mfcDC, (0, 0), win32con.SRCCOPY)
-            bmpinfo = saveBitMap.GetInfo()
-            bmpstr = saveBitMap.GetBitmapBits(True)
-            img = np.frombuffer(bmpstr, dtype='uint8')
-            img.shape = (bmpinfo['bmHeight'], bmpinfo['bmWidth'], 4)
-            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-            win32gui.DeleteObject(saveBitMap.GetHandle())
-            saveDC.DeleteDC()
-            mfcDC.DeleteDC()
-            win32gui.ReleaseDC(self.hwnd, hwndDC)
-            return img
-        except Exception as e:
-            logger.debug(f"截图失败: {e}")
-            return None
+        """前台截取游戏窗口画面（兼容DirectX）"""
+        return screen_capture.capture_client(self.hwnd)
 
     def find_npc_by_image(self, template_name: str = "npc_template.png") -> Optional[Tuple[int, int]]:
         """
@@ -165,38 +137,19 @@ class NpcTeleporter:
         return (best[0], best[1])
 
     def send_key(self, key_char: str, duration: float = 0.1):
-        """后台按键"""
-        if not self.hwnd:
-            return
-        try:
-            vk = win32api.VkKeyScan(key_char) & 0xFF
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk, 0)
-            time.sleep(duration)
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYUP, vk, 0)
-        except Exception as e:
-            logger.debug(f"按键[{key_char}]: {e}")
+        """前台按键（keybd_event 模拟真实按键）"""
+        key_sender.send_key(key_char, duration)
 
     def send_key_enter(self):
         """按回车"""
-        self.send_key('Enter', 0.1)
+        key_sender.send_key('Enter', 0.1)
         time.sleep(0.3)
 
     def mouse_click_background(self, client_x: int, client_y: int):
         """
-        后台鼠标点击（在游戏窗口内发送点击消息）
-        client_x, client_y 是相对于客户区左上角的坐标
+        前台鼠标点击（SetCursorPos + mouse_event 模拟真实点击）
         """
-        if not self.hwnd:
-            return
-        try:
-            # 将坐标打包成LPARAM
-            lparam = win32api.MAKELONG(client_x, client_y)
-            win32gui.PostMessage(self.hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lparam)
-            time.sleep(0.05)
-            win32gui.PostMessage(self.hwnd, win32con.WM_LBUTTONUP, 0, lparam)
-            logger.debug(f"后台点击: ({client_x}, {client_y})")
-        except Exception as e:
-            logger.debug(f"后台点击失败: {e}")
+        key_sender.click_at(self.hwnd, client_x, client_y)
 
     def mouse_click_foreground(self, screen_x: int, screen_y: int):
         """
@@ -223,7 +176,7 @@ class NpcTeleporter:
         """客户区坐标转屏幕坐标"""
         if not self.hwnd:
             return (0, 0)
-        return win32gui.ClientToScreen(self.hwnd, (client_x, client_y))
+        return key_sender.client_to_screen(self.hwnd, client_x, client_y)
 
     # ====== 传送流程 ======
 
@@ -385,15 +338,8 @@ class MonsterHunter:
         self.hwnd = hwnd
 
     def send_key(self, key_char: str, duration: float = 0.1):
-        if not self.hwnd:
-            return
-        try:
-            vk = win32api.VkKeyScan(key_char) & 0xFF
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk, 0)
-            time.sleep(duration)
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYUP, vk, 0)
-        except Exception as e:
-            logger.debug(f"按键[{key_char}]: {e}")
+        """前台按键（keybd_event 模拟真实按键）"""
+        key_sender.send_key(key_char, duration)
 
     def navigate(self, red_dots: List[Tuple[int, int, int]],
              minimap_center_x: int, minimap_center_y: int) -> str:

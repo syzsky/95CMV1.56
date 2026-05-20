@@ -392,51 +392,75 @@ class Mir2AutoBotV2:
 
     def capture_minimap(self) -> Optional[np.ndarray]:
         """
-        后台捕获小地图 - 使用Win32 API
-        即使窗口被遮挡也能正确截图
+        截取小地图区域
+        优先 BitBlt（速度快），黑屏则自动切 ImageGrab 前台截图（兼容DirectX）
         """
         if not self.client_rect or not self.minimap_region:
             return None
 
+        minimap_x, minimap_y, minimap_w, minimap_h = self.minimap_region
+
         try:
+            # 方法1: BitBlt（速度快）
             client_width = self.client_rect[2] - self.client_rect[0]
             client_height = self.client_rect[3] - self.client_rect[1]
 
-            # 获取窗口DC
             hwndDC = win32gui.GetWindowDC(self.hwnd)
             mfcDC = win32ui.CreateDCFromHandle(hwndDC)
             saveDC = mfcDC.CreateCompatibleDC()
-
-            # 创建位图
             saveBitMap = win32ui.CreateBitmap()
             saveBitMap.CreateCompatibleBitmap(mfcDC, client_width, client_height)
             saveDC.SelectObject(saveBitMap)
-
-            # 使用BitBlt进行截图（比PrintWindow更可靠）
-            # 注意：BitBlt需要窗口可见，但不需要窗口在最前面
             saveDC.BitBlt((0, 0), (client_width, client_height), mfcDC, (0, 0), win32con.SRCCOPY)
 
-            # 转换为numpy数组
             bmpinfo = saveBitMap.GetInfo()
             bmpstr = saveBitMap.GetBitmapBits(True)
             img = np.frombuffer(bmpstr, dtype='uint8')
             img.shape = (bmpinfo['bmHeight'], bmpinfo['bmWidth'], 4)
             img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
 
-            # 裁剪小地图区域
-            minimap_x, minimap_y, minimap_w, minimap_h = self.minimap_region
-            minimap = img[minimap_y:minimap_y+minimap_h, minimap_x:minimap_x+minimap_w]
-
-            # 清理资源
             win32gui.DeleteObject(saveBitMap.GetHandle())
             saveDC.DeleteDC()
             mfcDC.DeleteDC()
             win32gui.ReleaseDC(self.hwnd, hwndDC)
 
-            return minimap
+            # 检查是否黑屏
+            if img.mean() > 20:
+                h, w = img.shape[:2]
+                x1 = max(0, min(minimap_x, w - 1))
+                y1 = max(0, min(minimap_y, h - 1))
+                x2 = min(minimap_x + minimap_w, w)
+                y2 = min(minimap_y + minimap_h, h)
+                return img[y1:y2, x1:x2]
+
+            logger.warning("BitBlt截图黑屏，尝试前台截图...")
 
         except Exception as e:
-            logger.error(f"后台截图失败: {e}")
+            logger.warning(f"BitBlt截图失败: {e}，尝试前台截图...")
+
+        # 方法2: 前台截图（ImageGrab - 兼容DirectX游戏）
+        try:
+            from PIL import ImageGrab
+            client_left, client_top = win32gui.ClientToScreen(self.hwnd, (0, 0))
+            client_width = self.client_rect[2] - self.client_rect[0]
+            client_height = self.client_rect[3] - self.client_rect[1]
+            screenshot = ImageGrab.grab(bbox=(
+                client_left, client_top,
+                client_left + client_width,
+                client_top + client_height
+            ))
+            img = np.array(screenshot)
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+            h, w = img.shape[:2]
+            x1 = max(0, min(minimap_x, w - 1))
+            y1 = max(0, min(minimap_y, h - 1))
+            x2 = min(minimap_x + minimap_w, w)
+            y2 = min(minimap_y + minimap_h, h)
+            return img[y1:y2, x1:x2]
+
+        except Exception as e2:
+            logger.error(f"前台截图也失败: {e2}")
             return None
 
 

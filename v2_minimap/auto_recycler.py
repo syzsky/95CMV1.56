@@ -7,10 +7,8 @@
 import time
 import logging
 import os
-import win32gui
-import win32con
-import win32api
-import win32ui
+from . import key_sender
+from . import screen_capture
 import numpy as np
 import cv2
 from typing import Optional
@@ -48,7 +46,7 @@ class AutoRecycler:
         """设置窗口句柄"""
         self.hwnd = hwnd
         if hwnd:
-            self.client_rect = win32gui.GetClientRect(hwnd)
+            self.client_rect = screen_capture.get_client_rect(hwnd)
 
     def load_template(self, template_path: Optional[str] = None) -> bool:
         """
@@ -82,69 +80,16 @@ class AutoRecycler:
             return False
 
     def _capture_client(self) -> Optional[np.ndarray]:
-        """后台截取游戏客户区全屏（BGR格式）"""
-        if not self.hwnd or not self.client_rect:
-            return None
-        try:
-            cw = self.client_rect[2] - self.client_rect[0]
-            ch = self.client_rect[3] - self.client_rect[1]
-            hwndDC = win32gui.GetWindowDC(self.hwnd)
-            mfcDC = win32ui.CreateDCFromHandle(hwndDC)
-            saveDC = mfcDC.CreateCompatibleDC()
-            saveBitMap = win32ui.CreateBitmap()
-            saveBitMap.CreateCompatibleBitmap(mfcDC, cw, ch)
-            saveDC.SelectObject(saveBitMap)
-            saveDC.BitBlt((0, 0), (cw, ch), mfcDC, (0, 0), win32con.SRCCOPY)
-            bmpinfo = saveBitMap.GetInfo()
-            bmpstr = saveBitMap.GetBitmapBits(True)
-            img = np.frombuffer(bmpstr, dtype='uint8')
-            img.shape = (bmpinfo['bmHeight'], bmpinfo['bmWidth'], 4)
-            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-            win32gui.DeleteObject(saveBitMap.GetHandle())
-            saveDC.DeleteDC()
-            mfcDC.DeleteDC()
-            win32gui.ReleaseDC(self.hwnd, hwndDC)
-            return img
-        except Exception as e:
-            logger.debug(f"截图失败: {e}")
-            return None
+        """前台截取游戏窗口画面（兼容DirectX）"""
+        return screen_capture.capture_client(self.hwnd)
 
     def _send_key(self, key_char: str):
-        """向窗口发送按键（PostMessage）"""
-        if not self.hwnd:
-            return
-        try:
-            if key_char.startswith('F') and key_char[1:].isdigit():
-                f_num = int(key_char[1:])
-                vk = win32con.VK_F1 + f_num - 1
-            elif key_char.isdigit():
-                vk = win32con.VK_0 + int(key_char)
-            elif len(key_char) == 1 and key_char.isalpha():
-                vk = win32api.VkKeyScan(key_char.upper()) & 0xFF
-            else:
-                key_map = {'Enter': win32con.VK_RETURN, 'Space': win32con.VK_SPACE}
-                vk = key_map.get(key_char)
-                if not vk:
-                    return
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYDOWN, vk, 0)
-            time.sleep(0.05)
-            win32gui.PostMessage(self.hwnd, win32con.WM_KEYUP, vk, 0)
-        except Exception as e:
-            logger.debug(f"按键[{key_char}]: {e}")
+        """前台按键（keybd_event 模拟真实按键）"""
+        key_sender.send_key(key_char, 0.05)
 
     def _click_at(self, client_x: int, client_y: int):
-        """在客户区坐标点击鼠标（PostMessage）"""
-        if not self.hwnd:
-            return
-        try:
-            # 坐标打包为 lParam（LOWORD=x, HIWORD=y）
-            lparam = win32api.MAKELONG(client_x, client_y)
-            win32gui.PostMessage(self.hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lparam)
-            time.sleep(0.05)
-            win32gui.PostMessage(self.hwnd, win32con.WM_LBUTTONUP, 0, lparam)
-            time.sleep(0.1)
-        except Exception as e:
-            logger.debug(f"点击失败: {e}")
+        """在客户区坐标点击鼠标（SetCursorPos + mouse_event）"""
+        key_sender.click_at(self.hwnd, client_x, client_y)
 
     def _find_button(self, screen: np.ndarray) -> Optional[tuple]:
         """

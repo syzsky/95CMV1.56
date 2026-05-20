@@ -81,7 +81,7 @@ def _get_vk(key_char: str) -> Optional[int]:
 
 def activate_window(hwnd: int) -> bool:
     """
-    强制激活游戏窗口（绕过 UIPI 限制）
+    强制激活窗口（绕过 UIPI 限制）
     使用 AttachThreadInput + SetForegroundWindow + SetFocus 组合
     参考 PyAibote / 大漠插件 的窗口激活方案
     hwnd: 窗口句柄
@@ -91,21 +91,31 @@ def activate_window(hwnd: int) -> bool:
         return False
 
     try:
-        # 1. 先恢复窗口（如果是最小化/隐藏状态）
+        # 检查是否是子窗口（嵌入模式），如果是则激活其父窗口
+        style = user32.GetWindowLongW(hwnd, -16)  # GWL_STYLE
+        if style & 0x40000000:  # WS_CHILD
+            # 子窗口不能 SetForegroundWindow，激活父窗口
+            parent = user32.GetParent(hwnd)
+            if parent:
+                hwnd = parent
+            else:
+                return False
+
+        # 先恢复窗口（如果是最小化/隐藏状态）
         user32.ShowWindow(hwnd, 9)  # SW_RESTORE
         time.sleep(0.05)
 
-        # 2. 尝试普通激活
+        # 尝试普通激活
         user32.SetForegroundWindow(hwnd)
         time.sleep(0.05)
 
-        # 3. 检查是否激活成功
+        # 检查是否激活成功
         fore_hwnd = user32.GetForegroundWindow()
         if fore_hwnd == hwnd:
             logger.debug(f"窗口激活成功: hwnd={hwnd}")
             return True
 
-        # 4. 不成功则用 AttachThreadInput 绕过 UIPI
+        # 不成功则用 AttachThreadInput 绕过 UIPI
         current_tid = kernel32.GetCurrentThreadId()
         target_tid = user32.GetWindowThreadProcessId(hwnd, None)
 

@@ -547,13 +547,8 @@ class Mir2AutoBotV2:
         teleport_key = self.config.get('Teleport', 'teleport_key', fallback='2')
 
         try:
-            vk_code = win32api.VkKeyScan(teleport_key)
-            vk_code = vk_code & 0xFF
-
-            # keybd_event 模拟真实按键（PostMessage很多私服收不到）
-            ctypes.windll.user32.keybd_event(vk_code, 0, 0, 0)
-            time.sleep(0.05)
-            ctypes.windll.user32.keybd_event(vk_code, 0, 2, 0)
+            import key_sender
+            key_sender.send_key(teleport_key, 0.05, self.hwnd)
 
             self.last_teleport_time = current_time
             self.stats['teleports_used'] += 1

@@ -32,6 +32,7 @@ from auto_nav import AutoNavigator
 from map_detector import MapDetector
 from status_monitor import StatusMonitor
 from character_info import CharacterInfo
+import screen_capture
 
 # 获取脚本所在目录
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -441,11 +442,23 @@ class Mir2AutoBotV2:
             client_left, client_top = win32gui.ClientToScreen(self.hwnd, (0, 0))
             client_width = self.client_rect[2] - self.client_rect[0]
             client_height = self.client_rect[3] - self.client_rect[1]
+
+            # 临时把GUI窗口移开，避免截到GUI自己
+            gui_hwnd = self.root.winfo_id() if hasattr(self, 'root') else None
+            if gui_hwnd:
+                import win32gui as _wg
+                _wg.SetWindowPos(gui_hwnd, 0, -10000, -10000, 0, 0, 0x0001|0x0002|0x0010)
+
             screenshot = ImageGrab.grab(bbox=(
                 client_left, client_top,
                 client_left + client_width,
                 client_top + client_height
             ))
+
+            # 移回GUI窗口
+            if gui_hwnd:
+                _wg.SetWindowPos(gui_hwnd, 0, 100, 100, 0, 0, 0x0001|0x0002|0x0004|0x0010)
+
             img = np.array(screenshot)
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
@@ -499,17 +512,28 @@ class Mir2AutoBotV2:
             client_left, client_top = win32gui.ClientToScreen(self.hwnd, (0, 0))
             client_width = self.client_rect[2] - self.client_rect[0]
             client_height = self.client_rect[3] - self.client_rect[1]
+
+            # 临时把GUI窗口移开
+            gui_hwnd = self.root.winfo_id() if hasattr(self, 'root') else None
+            if gui_hwnd:
+                import win32gui as _wg
+                _wg.SetWindowPos(gui_hwnd, 0, -10000, -10000, 0, 0, 0x0001|0x0002|0x0010)
+
             screenshot = ImageGrab.grab(bbox=(
                 client_left, client_top,
                 client_left + client_width,
                 client_top + client_height
             ))
+
+            if gui_hwnd:
+                _wg.SetWindowPos(gui_hwnd, 0, 100, 100, 0, 0, 0x0001|0x0002|0x0004|0x0010)
+
             img = np.array(screenshot)
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             return img
 
         except Exception as e2:
-            self._log(f"前台全屏截图失败: {e2}", "ERROR")
+            self._log(f"前台截图也失败: {e2}", "ERROR")
             return None
 
 
@@ -1084,22 +1108,19 @@ class BotGUI:
         self.calibrate_char_btn = ttk.Button(char_frame, text="校准信息", command=self.calibrate_character_info, width=10)
         self.calibrate_char_btn.pack(side=tk.RIGHT, padx=5)
 
-        # ===== 游戏窗口嵌入 =====
-        embed_frame = ttk.LabelFrame(main_frame, text="游戏画面（嵌入模式）", padding="3")
-        # 用Frame作为嵌入容器
-        self.embed_container = tk.Frame(embed_frame, bg='#000000',
-                                        width=620, height=400)
-        self.embed_container.pack(fill=tk.BOTH, expand=True, pady=2)
-        self.embed_container.pack_propagate(False)
+        # ===== 游戏画面预览（实时截图） =====
+        embed_frame = ttk.LabelFrame(main_frame, text="游戏画面预览（实时）", padding="3")
+        embed_frame.pack(fill=tk.X, pady=3)
+
+        self.game_preview_label = ttk.Label(embed_frame, text="绑定窗口后显示实时画面")
+        self.game_preview_label.pack(fill=tk.X, pady=2)
 
         embed_ctl = ttk.Frame(embed_frame)
         embed_ctl.pack(fill=tk.X)
-        self.embed_btn = ttk.Button(embed_ctl, text="嵌入游戏",
-                                    command=self.toggle_embed, width=12)
-        self.embed_btn.pack(side=tk.LEFT, padx=5)
-        self.embed_info = ttk.Label(embed_ctl, text="绑定窗口后可嵌入",
-                                    font=('Arial', 8), foreground='#888')
-        self.embed_info.pack(side=tk.LEFT, padx=5)
+        self.preview_btn = ttk.Button(embed_ctl, text="开始预览", command=self.toggle_preview, width=12)
+        self.preview_btn.pack(side=tk.LEFT, padx=5)
+        self.preview_info = ttk.Label(embed_ctl, text="绑定窗口后可预览", font=('Arial', 8), foreground='#888')
+        self.preview_info.pack(side=tk.LEFT, padx=5)
 
         # ===== 运行日志 =====
         log_frame = ttk.LabelFrame(main_frame, text="运行日志", padding="5")
@@ -1470,6 +1491,50 @@ class BotGUI:
                     self._cleanup_debug_dir()
             
             self.root.after(1000, self._update_stats_loop)
+
+    def toggle_preview(self):
+        """切换游戏画面实时预览"""
+        if getattr(self, '_preview_running', False):
+            self._preview_running = False
+            self.preview_btn.config(text="开始预览")
+            self.preview_info.config(text="已停止", foreground='#888')
+            self.game_preview_label.config(text="预览已停止", image='')
+        else:
+            if not self.bot or not self.bot.hwnd:
+                messagebox.showinfo("提示", "请先「绑定」窗口")
+                return
+            self._preview_running = True
+            self.preview_btn.config(text="停止预览")
+            self.preview_info.config(text="✅ 实时预览中", foreground='green')
+            self._preview_loop()
+
+    def _preview_loop(self):
+        """定时截图刷新到预览Label"""
+        if not getattr(self, '_preview_running', False):
+            return
+        try:
+            if self.bot and self.bot.hwnd:
+                # 截图游戏窗口，临时移开GUI避免截到自己
+                img = screen_capture.capture_client(self.bot.hwnd)
+                if img is not None:
+                    # 缩放到预览区域大小
+                    h, w = img.shape[:2]
+                    max_w, max_h = 400, 200
+                    scale = min(max_w / w, max_h / h, 1.0)
+                    new_w, new_h = int(w * scale), int(h * scale)
+                    img_small = cv2.resize(img, (new_w, new_h))
+                    # 转成Tkinter能显示的格式
+                    img_rgb = cv2.cvtColor(img_small, cv2.COLOR_BGR2RGB)
+                    pil_img = Image.fromarray(img_rgb)
+                    self._preview_img = ImageTk.PhotoImage(pil_img)  # 保持引用防GC
+                    self.game_preview_label.config(image=self._preview_img, text='')
+                else:
+                    self.game_preview_label.config(text="截图失败", image='')
+        except Exception as e:
+            self.game_preview_label.config(text=f"预览错误: {e}", image='')
+        # 每200ms刷新一次
+        if hasattr(self, 'root'):
+            self.root.after(200, self._preview_loop)
 
     def toggle_embed(self):
         """切换游戏窗口嵌入/分离"""

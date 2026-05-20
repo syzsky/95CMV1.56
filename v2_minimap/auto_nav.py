@@ -6,7 +6,7 @@
 
 import time
 import logging
-from . import key_sender
+import key_sender
 import numpy as np
 from typing import Optional, List, Tuple
 

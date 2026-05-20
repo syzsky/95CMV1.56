@@ -8,9 +8,8 @@
 import time
 import keyboard
 import win32gui
-import win32con
-import win32api
-import win32ui
+import key_sender
+import screen_capture
 import logging
 import configparser
 import os
@@ -391,77 +390,14 @@ class Mir2AutoBotV2:
         logger.info(f"小地图区域（相对客户区）: {self.minimap_region}")
 
     def capture_minimap(self) -> Optional[np.ndarray]:
-        """
-        截取小地图区域
-        优先 BitBlt（速度快），黑屏则自动切 ImageGrab 前台截图（兼容DirectX）
-        """
+        """截取小地图区域（使用 screen_capture）"""
         if not self.client_rect or not self.minimap_region:
             return None
 
         minimap_x, minimap_y, minimap_w, minimap_h = self.minimap_region
-
-        try:
-            # 方法1: BitBlt（速度快）
-            client_width = self.client_rect[2] - self.client_rect[0]
-            client_height = self.client_rect[3] - self.client_rect[1]
-
-            hwndDC = win32gui.GetWindowDC(self.hwnd)
-            mfcDC = win32ui.CreateDCFromHandle(hwndDC)
-            saveDC = mfcDC.CreateCompatibleDC()
-            saveBitMap = win32ui.CreateBitmap()
-            saveBitMap.CreateCompatibleBitmap(mfcDC, client_width, client_height)
-            saveDC.SelectObject(saveBitMap)
-            saveDC.BitBlt((0, 0), (client_width, client_height), mfcDC, (0, 0), win32con.SRCCOPY)
-
-            bmpinfo = saveBitMap.GetInfo()
-            bmpstr = saveBitMap.GetBitmapBits(True)
-            img = np.frombuffer(bmpstr, dtype='uint8')
-            img.shape = (bmpinfo['bmHeight'], bmpinfo['bmWidth'], 4)
-            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-
-            win32gui.DeleteObject(saveBitMap.GetHandle())
-            saveDC.DeleteDC()
-            mfcDC.DeleteDC()
-            win32gui.ReleaseDC(self.hwnd, hwndDC)
-
-            # 检查是否黑屏
-            if img.mean() > 20:
-                h, w = img.shape[:2]
-                x1 = max(0, min(minimap_x, w - 1))
-                y1 = max(0, min(minimap_y, h - 1))
-                x2 = min(minimap_x + minimap_w, w)
-                y2 = min(minimap_y + minimap_h, h)
-                return img[y1:y2, x1:x2]
-
-            logger.warning("BitBlt截图黑屏，尝试前台截图...")
-
-        except Exception as e:
-            logger.warning(f"BitBlt截图失败: {e}，尝试前台截图...")
-
-        # 方法2: 前台截图（ImageGrab - 兼容DirectX游戏）
-        try:
-            from PIL import ImageGrab
-            client_left, client_top = win32gui.ClientToScreen(self.hwnd, (0, 0))
-            client_width = self.client_rect[2] - self.client_rect[0]
-            client_height = self.client_rect[3] - self.client_rect[1]
-            screenshot = ImageGrab.grab(bbox=(
-                client_left, client_top,
-                client_left + client_width,
-                client_top + client_height
-            ))
-            img = np.array(screenshot)
-            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-
-            h, w = img.shape[:2]
-            x1 = max(0, min(minimap_x, w - 1))
-            y1 = max(0, min(minimap_y, h - 1))
-            x2 = min(minimap_x + minimap_w, w)
-            y2 = min(minimap_y + minimap_h, h)
-            return img[y1:y2, x1:x2]
-
-        except Exception as e2:
-            logger.error(f"前台截图也失败: {e2}")
-            return None
+        return screen_capture.capture_client_region(
+            self.hwnd, minimap_x, minimap_y, minimap_w, minimap_h
+        )
 
 
     def detect_yellow_dots(self, minimap_image: np.ndarray) -> Tuple[bool, List[Tuple[int, int, int]]]:
@@ -515,13 +451,7 @@ class Mir2AutoBotV2:
         teleport_key = self.config.get('Teleport', 'teleport_key', fallback='2')
 
         try:
-            vk_code = win32api.VkKeyScan(teleport_key)
-            vk_code = vk_code & 0xFF
-
-            # keybd_event 模拟真实按键（PostMessage很多私服收不到）
-            ctypes.windll.user32.keybd_event(vk_code, 0, 0, 0)
-            time.sleep(0.05)
-            ctypes.windll.user32.keybd_event(vk_code, 0, 2, 0)
+            key_sender.send_key(teleport_key, 0.05)
 
             self.last_teleport_time = current_time
             self.stats['teleports_used'] += 1

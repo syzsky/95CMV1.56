@@ -9,8 +9,8 @@
 import time
 import logging
 import os
-from . import key_sender
-from . import screen_capture
+import key_sender
+import screen_capture
 import numpy as np
 import cv2
 from typing import Optional, List, Tuple
@@ -151,26 +151,12 @@ class NpcTeleporter:
         """
         key_sender.click_at(self.hwnd, client_x, client_y)
 
-    def mouse_click_foreground(self, screen_x: int, screen_y: int):
+    def mouse_click_foreground(self, client_x: int, client_y: int):
         """
-        前台鼠标点击（需要窗口在前台）
-        如果后台点击无效，用这个方法
+        前台鼠标点击（通过 key_sender.click_at）
+        参数改为 client_x, client_y 客户区坐标，自动转屏幕坐标
         """
-        try:
-            # 保存原光标位置
-            old_pos = win32api.GetCursorPos()
-            # 移动鼠标
-            win32api.SetCursorPos((screen_x, screen_y))
-            time.sleep(0.1)
-            # 点击
-            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
-            time.sleep(0.05)
-            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
-            time.sleep(0.1)
-            # 移回原位
-            win32api.SetCursorPos(old_pos)
-        except Exception as e:
-            logger.debug(f"前台点击失败: {e}")
+        key_sender.click_at(self.hwnd, client_x, client_y)
 
     def client_to_screen(self, client_x: int, client_y: int) -> Tuple[int, int]:
         """客户区坐标转屏幕坐标"""

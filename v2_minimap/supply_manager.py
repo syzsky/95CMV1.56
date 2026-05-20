@@ -8,8 +8,8 @@
 import time
 import logging
 import os
-from . import key_sender
-from . import screen_capture
+import key_sender
+import screen_capture
 import numpy as np
 import cv2
 from typing import Optional

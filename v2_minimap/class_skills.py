@@ -6,7 +6,7 @@
 
 import time
 import logging
-from . import key_sender
+import key_sender
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)

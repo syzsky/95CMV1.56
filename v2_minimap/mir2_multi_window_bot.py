@@ -8,8 +8,8 @@
 import time
 import keyboard
 import win32gui
-from . import key_sender
-from . import screen_capture
+import key_sender
+import screen_capture
 import logging
 import configparser
 import os

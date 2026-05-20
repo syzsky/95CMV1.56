@@ -138,11 +138,11 @@ class NpcTeleporter:
 
     def send_key(self, key_char: str, duration: float = 0.1):
         """前台按键（keybd_event 模拟真实按键）"""
-        key_sender.send_key(key_char, duration)
+        key_sender.send_key(key_char, duration, self.hwnd)
 
     def send_key_enter(self):
         """按回车"""
-        key_sender.send_key('Enter', 0.1)
+        key_sender.send_key('Enter', 0.1, self.hwnd)
         time.sleep(0.3)
 
     def mouse_click_background(self, client_x: int, client_y: int):
@@ -325,7 +325,7 @@ class MonsterHunter:
 
     def send_key(self, key_char: str, duration: float = 0.1):
         """前台按键（keybd_event 模拟真实按键）"""
-        key_sender.send_key(key_char, duration)
+        key_sender.send_key(key_char, duration, self.hwnd)
 
     def navigate(self, red_dots: List[Tuple[int, int, int]],
              minimap_center_x: int, minimap_center_y: int) -> str:

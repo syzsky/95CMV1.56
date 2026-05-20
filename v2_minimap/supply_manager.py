@@ -98,7 +98,7 @@ class SupplyManager:
 
     def _send_key(self, key_char: str):
         """前台按键（keybd_event）"""
-        key_sender.send_key(key_char, 0.05)
+        key_sender.send_key(key_char, 0.05, self.hwnd)
 
     def _click_at(self, client_x: int, client_y: int):
         """前台鼠标点击（mouse_event）"""

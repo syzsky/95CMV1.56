@@ -14,6 +14,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 user32 = ctypes.windll.user32
+kernel32 = ctypes.windll.kernel32
 
 # 虚拟键码映射（处理特殊键）
 SPECIAL_KEYS = {
@@ -78,12 +79,64 @@ def _get_vk(key_char: str) -> Optional[int]:
     return key_map.get(key_char.upper())
 
 
-def send_key(key_char: str, duration: float = 0.05):
+def activate_window(hwnd: int) -> bool:
+    """
+    强制激活游戏窗口（绕过 UIPI 限制）
+    使用 AttachThreadInput + SetForegroundWindow + SetFocus 组合
+    参考 PyAibote / 大漠插件 的窗口激活方案
+    hwnd: 窗口句柄
+    返回: True=激活成功
+    """
+    if not hwnd:
+        return False
+
+    try:
+        # 1. 先恢复窗口（如果是最小化/隐藏状态）
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        time.sleep(0.05)
+
+        # 2. 尝试普通激活
+        user32.SetForegroundWindow(hwnd)
+        time.sleep(0.05)
+
+        # 3. 检查是否激活成功
+        fore_hwnd = user32.GetForegroundWindow()
+        if fore_hwnd == hwnd:
+            logger.debug(f"窗口激活成功: hwnd={hwnd}")
+            return True
+
+        # 4. 不成功则用 AttachThreadInput 绕过 UIPI
+        current_tid = kernel32.GetCurrentThreadId()
+        target_tid = user32.GetWindowThreadProcessId(hwnd, None)
+
+        # 附加到目标窗口的输入线程
+        user32.AttachThreadInput(current_tid, target_tid, True)
+        time.sleep(0.02)
+
+        # 强制设为前台窗口
+        user32.SetForegroundWindow(hwnd)
+        user32.SetFocus(hwnd)
+        user32.BringWindowToTop(hwnd)
+        time.sleep(0.05)
+
+        # 分离输入线程
+        user32.AttachThreadInput(current_tid, target_tid, False)
+
+        logger.debug(f"窗口激活完成: hwnd={hwnd}")
+        return True
+
+    except Exception as e:
+        logger.debug(f"窗口激活失败 ({hwnd}): {e}")
+        return False
+
+
+def send_key(key_char: str, duration: float = 0.05, hwnd: Optional[int] = None):
     """
     发送按键模拟（keybd_event）
-    要求游戏窗口在前台（被激活）
+    如果传入 hwnd，会自动先将窗口激活到前台
     key_char: 按键字符或名称，如 'A', '1', 'F1', 'Enter', 'Space'
     duration: 按键按下持续时间（秒）
+    hwnd: 可选，指定窗口句柄（会自动激活）
     """
     vk = _get_vk(key_char)
     if vk is None:
@@ -91,6 +144,11 @@ def send_key(key_char: str, duration: float = 0.05):
         return
 
     try:
+        # 如果指定了窗口句柄，先激活窗口
+        if hwnd:
+            activate_window(hwnd)
+            time.sleep(0.03)
+
         user32.keybd_event(vk, 0, 0, 0)        # keydown
         time.sleep(duration)
         user32.keybd_event(vk, 0, 2, 0)        # keyup (2 = KEYEVENTF_KEYUP)
@@ -114,6 +172,10 @@ def click_at(hwnd: int, client_x: int, client_y: int):
         return
 
     try:
+        # 先激活窗口
+        activate_window(hwnd)
+        time.sleep(0.03)
+
         # 客户区坐标转屏幕坐标
         screen_pos = win32api.ClientToScreen(hwnd, (client_x, client_y))
 

@@ -72,7 +72,7 @@ class AutoNavigator:
 
     def send_key(self, key_char: str, duration: float = 0.1):
         """前台按键（keybd_event 模拟真实按键）"""
-        key_sender.send_key(key_char, duration)
+        key_sender.send_key(key_char, duration, self.hwnd)
 
     def get_routes_for_map(self, map_name: str) -> list:
         routes = []

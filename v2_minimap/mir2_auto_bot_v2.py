@@ -451,7 +451,7 @@ class Mir2AutoBotV2:
         teleport_key = self.config.get('Teleport', 'teleport_key', fallback='2')
 
         try:
-            key_sender.send_key(teleport_key, 0.05)
+            key_sender.send_key(teleport_key, 0.05, self.hwnd)
 
             self.last_teleport_time = current_time
             self.stats['teleports_used'] += 1

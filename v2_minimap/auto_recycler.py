@@ -85,7 +85,7 @@ class AutoRecycler:
 
     def _send_key(self, key_char: str):
         """前台按键（keybd_event 模拟真实按键）"""
-        key_sender.send_key(key_char, 0.05)
+        key_sender.send_key(key_char, 0.05, self.hwnd)
 
     def _click_at(self, client_x: int, client_y: int):
         """在客户区坐标点击鼠标（SetCursorPos + mouse_event）"""

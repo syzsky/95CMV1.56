@@ -109,7 +109,7 @@ class ClassSkillManager:
 
     def send_key(self, key_char: str):
         """前台按键（keybd_event 模拟真实按键）"""
-        key_sender.send_key(key_char, 0.05)
+        key_sender.send_key(key_char, 0.05, self.hwnd)
 
     def use_item(self, item_dict: dict, now: float) -> bool:
         if not self.enabled or not self.hwnd:
